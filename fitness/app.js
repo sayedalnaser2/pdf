@@ -133,20 +133,38 @@ function pickEx(p, ctx, off){
   const e = c[off % rot]; ctx.used.add(e[0]); return e[0];
 }
 
-function scheme(goal, level, compound, age){
-  let s, reps, rest;
+const REST_PREF = {short:0.7, auto:1, long:1.4};
+function fmtRest(sec){
+  if(sec<120) return sec+' s';
+  const m = Math.floor(sec/60), r = sec%60;
+  return r ? `${m} min ${r} s` : `${m} min`;
+}
+// Rest in seconds: depends on goal, lift type (compound vs accessory), experience, age and chosen preference
+function restSec(goal, compound, level, age, pref){
+  const base = {strength:[180,90], muscle:[105,60], fat:[45,30], endurance:[40,30], mobility:[30,20], general:[75,45]}[goal][compound?0:1];
+  let r = base;
+  if(level===2 && compound && (goal==='strength'||goal==='muscle')) r += 15;
+  if(level===0 && compound) r -= 10;
+  if(age>=50) r += 15;
+  r *= REST_PREF[pref] || 1;
+  return Math.max(20, Math.round(r/5)*5);
+}
+
+function scheme(goal, level, compound, age, pref){
+  let s, reps;
   switch(goal){
-    case 'strength': s = compound?5:3; reps = compound?'3–5':'6–8'; rest = compound?'2–3 min':'90 s'; break;
-    case 'muscle':   s = compound?4:3; reps = compound?'6–10':'10–15'; rest = compound?'90 s':'60 s'; break;
-    case 'fat':      s = 3; reps = '12–15'; rest = '45 s'; break;
-    case 'endurance':s = 3; reps = '15–20'; rest = '30–45 s'; break;
-    case 'mobility': s = 2; reps = '10–12 (slow, controlled)'; rest = '30 s'; break;
-    default:         s = 3; reps = compound?'8–12':'10–15'; rest = '60 s';
+    case 'strength': s = compound?5:3; reps = compound?'3–5':'6–8'; break;
+    case 'muscle':   s = compound?4:3; reps = compound?'6–10':'10–15'; break;
+    case 'fat':      s = 3; reps = '12–15'; break;
+    case 'endurance':s = 3; reps = '15–20'; break;
+    case 'mobility': s = 2; reps = '10–12 (slow, controlled)'; break;
+    default:         s = 3; reps = compound?'8–12':'10–15';
   }
   if(level===0) s = Math.max(2, s-1);
   if(level===2 && (goal==='muscle'||goal==='strength') && compound) s += 1;
-  if(age>=50){ rest = rest.replace('45 s','60 s').replace('30–45 s','45–60 s'); if(reps==='3–5') reps='5–6'; }
-  return {s, reps, rest};
+  if(age>=50 && reps==='3–5') reps='5–6';
+  const sec = restSec(goal, compound, level, age, pref);
+  return {s, reps, rest:fmtRest(sec), sec};
 }
 
 const COMPOUND = new Set(['squat','hinge','hpush','vpush','hpull','vpull','lunge','glutes']);
@@ -166,18 +184,23 @@ function buildPlan(p){
     ctx.used = new Set();
     let sl = slots.slice();
     if(sport.bias.length && !mobilityOnly){ const b = sport.bias[i % sport.bias.length]; if(!sl.includes(b)) sl.push(b); }
-    // Time budget: ~ 9 min per exercise after warm-up
-    const maxEx = Math.max(3, Math.floor((p.minutes-10)/ (p.goal==='strength'?10:8)));
-    if(sl.length>maxEx){ const keep = sl.filter(x=>COMPOUND.has(x)); const rest = sl.filter(x=>!COMPOUND.has(x)); sl = keep.concat(rest).slice(0,maxEx); }
-    const rows = sl.map(pat=>{
+    // Time budget: sets × (≈40 s working + rest) + 1 min setup per exercise, within session length minus warm-up/cool-down
+    const budget = p.minutes - 10;
+    sl = sl.filter(x=>COMPOUND.has(x)).concat(sl.filter(x=>!COMPOUND.has(x)));
+    const rows = []; let used = 0;
+    for(const pat of sl){
+      const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age, p.rest);
+      const t = sc.s*(40+sc.sec)/60 + 1;
+      if(rows.length>=2 && used+t>budget) continue;
       const n = pickEx(pat, ctx, i);
-      if(!n) return null;
-      const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age);
+      if(!n) continue;
       const isTime = ['Plank','Side plank','Dead bug'].includes(n);
-      return {n, tag:LABELS[pat], sets:sc.s, reps: isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps, rest:sc.rest};
-    }).filter(Boolean);
+      rows.push({n, tag:LABELS[pat], sets:sc.s, reps: isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps, rest:sc.rest});
+      used += t;
+    }
+    const estMin = Math.round(used + 10);
 
-    const day = {name, kind:'strength', rows, finisher:null, mobility:[], notes:[]};
+    const day = {name, kind:'strength', rows, estMin, finisher:null, mobility:[], notes:[]};
     if(mobilityOnly){
       day.kind = 'mobility'; day.rows = [];
       day.mobility = MOBILITY.slice((i*4)%MOBILITY.length).concat(MOBILITY).slice(0,8);
@@ -263,12 +286,12 @@ function renderResult(p, plan, st){
     if(d.cardio) body += `<h4>Cardio</h4><p>${d.cardio}</p>`;
     if(d.finisher) body += `<h4>Finisher</h4><p>${d.finisher}</p>`;
     body += `<h4>${d.kind==='mobility'?'Mobility flow':'Cool-down · 5 min'}</h4><p>${d.mobility.length?d.mobility.join(' · '):'Easy walking and static stretches for the muscles you trained, 30 s each.'}</p>`;
-    return `<article class="day"><h3>${when} · ${d.name}</h3><div class="meta">Workout ${i+1} · about ${p.minutes} min</div>${body}</article>`;
+    return `<article class="day"><h3>${when} · ${d.name}</h3><div class="meta">Workout ${i+1} · ${d.estMin?'about '+d.estMin+' min incl. warm-up':'about '+p.minutes+' min'}</div>${body}</article>`;
   }).join('');
 
   $('result').innerHTML = `
     <div class="actions"><button id="print">🖨️ Print / save as PDF</button><button id="copy">📋 Copy as text</button><button id="again">✏️ Edit answers</button></div>
-    <div class="card" style="margin-bottom:14px"><b>${g.label}</b> · ${sp.label} · ${p.days} days/week · ${p.minutes} min · ${p.equip.length?p.equip.length+' equipment types':'bodyweight only'}</div>
+    <div class="card" style="margin-bottom:14px"><b>${g.label}</b> · ${sp.label} · ${p.days} days/week · ${p.minutes} min · rest: ${({short:'short',auto:'auto',long:'long'})[p.rest]} · ${p.equip.length?p.equip.length+' equipment types':'bodyweight only'}</div>
     <div class="stats">
       <div><b>${st.bmi.toFixed(1)}</b><span>BMI · ${bmiCat(st.bmi)}</span></div>
       <div><b>${Math.round(st.tdee)}</b><span>kcal / day to maintain</span></div>
@@ -332,7 +355,7 @@ function initForm(){
       goal:document.querySelector('input[name=goal]:checked').value,
       sport:$('sportsel').value,
       equip:[...document.querySelectorAll('input[name=equip]:checked')].map(x=>x.value),
-      days:+$('days').value, minutes:+$('minutes').value
+      days:+$('days').value, minutes:+$('minutes').value, rest:$('rest').value
     };
     p.bmi = p.weight/Math.pow(p.height/100,2);
     try{ localStorage.setItem('fitplan', JSON.stringify(p)); }catch(_){}
