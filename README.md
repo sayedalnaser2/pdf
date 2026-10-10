@@ -23,4 +23,4 @@ Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin 
 ## NutriPlan (`diet/`)
 A separate static page: open `diet/index.html` (via `python3 -m http.server`). Calculates calories/carbs/protein/fat
 (Mifflin–St Jeor), builds a 7-day meal plan with a full recipe for every meal, and lets you tick the ingredients you
-have to get recipe suggestions ranked by what you can already make.
+have to get recipe suggestions ranked by what you can already make. 76 original recipes, 87 ingredients.

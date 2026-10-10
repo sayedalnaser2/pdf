@@ -1,14 +1,14 @@
 const $ = (id) => document.getElementById(id);
 const MEALS = ["breakfast", "lunch", "dinner", "snack"];
-const STAPLES = new Set(["oil", "lemon"]); // assumed to be in every kitchen
+const STAPLES = new Set(["oil", "lemon", "soy"]); // assumed to be in every kitchen
 const GROUPS = {
-  "Protein": ["chicken", "beef", "turkey", "salmon", "cod", "tuna", "shrimp", "egg", "tofu", "whey"],
-  "Dairy": ["milk", "yogurt", "cottage", "feta", "soymilk"],
-  "Grains & bread": ["oats", "rice", "quinoa", "pasta", "bread", "tortilla"],
-  "Beans & legumes": ["lentils", "chickpeas", "blackbeans", "hummus"],
-  "Vegetables": ["broccoli", "spinach", "tomato", "cucumber", "zucchini", "pepper", "onion", "carrot", "mushrooms", "sweetpotato", "greens", "avocado"],
-  "Fruit": ["banana", "apple", "blueberries"],
-  "Nuts, seeds & sweet": ["almonds", "walnuts", "pb", "chia", "honey", "maple"],
+  "Meat & fish": ["chicken", "beef", "turkey", "pork", "deli", "salmon", "cod", "tilapia", "tuna", "sardines", "shrimp"],
+  "Eggs, dairy & plant protein": ["egg", "milk", "yogurt", "cottage", "ricotta", "feta", "mozzarella", "parmesan", "soymilk", "tofu", "tempeh", "edamame", "whey"],
+  "Grains, bread & pasta": ["oats", "rice", "quinoa", "bulgur", "couscous", "pasta", "soba", "ricenoodles", "bread", "pita", "tortilla"],
+  "Beans & legumes": ["lentils", "chickpeas", "blackbeans", "kidney", "whitebeans", "hummus"],
+  "Vegetables": ["broccoli", "spinach", "kale", "tomato", "cucumber", "zucchini", "pepper", "onion", "carrot", "mushrooms", "cauliflower", "cabbage", "asparagus", "greenbeans", "eggplant", "peas", "corn", "potato", "sweetpotato", "squash", "greens", "avocado"],
+  "Fruit": ["banana", "apple", "orange", "blueberries", "strawberries", "raspberries", "mango", "pineapple", "dates"],
+  "Nuts, seeds & pantry": ["almonds", "walnuts", "cashews", "pb", "tahini", "chia", "flax", "pumpkinseeds", "cocoa", "coconut", "honey", "maple"],
 };
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
