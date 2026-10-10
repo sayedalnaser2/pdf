@@ -51,33 +51,60 @@ const HIIT = [ // [name, equip, highImpact]
   ['Shadow boxing rounds: 30s on / 30s off','none'],['Fast bodyweight squats: 30s on / 30s off','none']
 ];
 
-const SPORTS = {
-  gym:       {label:'Gym / no specific sport',desc:'Pure strength & fitness',bias:[],drills:[],note:''},
-  running:   {label:'Running',desc:'5K to marathon',bias:['lunge','calves','hinge','core'],
-              note:'Keep 1 hard run + 1–2 easy runs per week on non-lifting days or after lifting. Strength work cuts injury risk and improves running economy.',
-              drills:['Easy run 20–40 min (conversation pace)','Tempo: 10 min easy, 15 min comfortably hard, 5 min easy','Intervals: 6 × 2 min hard / 2 min jog','Strides: 6 × 20 s fast, relaxed form']},
-  cycling:   {label:'Cycling',desc:'Road, MTB, indoor',bias:['squat','hinge','core','reardelt'],
-              note:'Add 2–3 rides weekly around lifting. Lower-body strength boosts power; core and upper-back work keeps you comfortable in the saddle.',
-              drills:['Endurance ride 45–90 min, steady Zone 2','Sweet-spot: 3 × 10 min hard / 5 min easy','Hill repeats: 5 × 3 min seated climbs','Cadence drills: 5 × 1 min at 100+ rpm']},
-  swimming:  {label:'Swimming',desc:'Pool & open water',bias:['vpull','reardelt','core','vpush'],
-              note:'Dryland strength emphasises lats, shoulders stability and core. Keep pressing volume moderate to protect the shoulders.',
-              drills:['Pool: 400 m easy warm-up + 4 × 100 m drill (catch-up, fingertip drag)','Pool: 8 × 50 m fast / 20 s rest','Pool: 1 × 800 m steady, count strokes per length','Dryland: Band straight-arm pulldowns 3 × 15']},
-  football:  {label:'Football / Soccer',desc:'Speed, agility, stamina',bias:['lunge','hinge','core','calves'],
-              note:'Mix speed, change-of-direction and stamina. Single-leg strength and hamstring work are key for sprinting and injury protection.',
-              drills:['Sprints: 8 × 20 m, walk-back recovery','Shuttle runs 5-10-5 × 6','Ladder/cone agility footwork × 6 patterns','Interval run: 8 × 1 min hard / 1 min easy']},
-  basketball:{label:'Basketball',desc:'Jumping, speed, agility',bias:['lunge','squat','calves','core'],
-              note:'Build explosive legs and ankle/knee stability. Land softly and keep jump volume modest.',
-              drills:['Defensive slides: 6 × 20 s','Vertical jump: 5 × 4 (full recovery)','Suicide sprints × 5','Ball-handling circuit 10 min']},
-  martial:   {label:'Martial arts / Boxing',desc:'Power, conditioning, core',bias:['hpull','core','vpush','hinge'],
-              note:'Rotational core, strong pulling muscles and short-burst conditioning transfer best. Keep technical sessions fresh — avoid heavy leg work the day before sparring.',
-              drills:['Shadow boxing/kicks: 6 × 3 min rounds, 1 min rest','Heavy bag: 5 × 2 min rounds','Jump rope or skipping drills: 6 × 2 min','Neck, grip & rotational core circuit']},
-  racket:    {label:'Tennis / Racket sports',desc:'Agility & rotational power',bias:['lunge','core','reardelt','hinge'],
-              note:'Prioritise leg drive, rotational core and shoulder health (rear delts, rotator cuff).',
-              drills:['Split-step & first-step drills × 10','Lateral shuffles: 6 × 20 s','Medicine-ball/band rotational throws 3 × 8/side','Court sprints: 8 × 15 s']},
-  climbing:  {label:'Climbing',desc:'Pull strength, grip, core',bias:['hpull','reardelt','core','triceps'],
-              note:'Balance all the pulling with pushing and rear-delt work to keep shoulders and elbows healthy. Train fingers carefully.',
-              drills:['Hangs from bar: 5 × 10 s','Climb/traverse 4 × 4 min easy-moderate','Core: hanging leg raises or L-sits 4 × max','Antagonist push-ups 3 × 15']}
-};
+// Sport: key -> [label, category, bias patterns, note, drills[]]
+const SPORT_DEFS = [
+ ['gym','Gym / no specific sport','General',[],'',[]],
+ // Endurance
+ ['running','Running (5K–marathon)','Endurance',['lunge','calves','hinge','core'],'Keep 1 hard run + 1–2 easy runs per week on non-lifting days or after lifting. Strength work cuts injury risk and improves running economy.',['Easy run 20–40 min (conversation pace)','Tempo: 10 min easy, 15 min comfortably hard, 5 min easy','Intervals: 6 × 2 min hard / 2 min jog','Strides: 6 × 20 s fast, relaxed form']],
+ ['trail','Trail / Ultra running','Endurance',['lunge','calves','hinge','core'],'Train on hills and uneven ground; ankle, glute and single-leg strength protect you on long descents.',['Long steady run/hike 60–120 min','Hill repeats: 6 × 90 s uphill, walk down','Downhill control: 5 × 1 min easy descents','Single-leg balance on uneven surface 3 × 40 s']],
+ ['cycling','Cycling (road, MTB, indoor)','Endurance',['squat','hinge','core','reardelt'],'Add 2–3 rides weekly around lifting. Lower-body strength boosts power; core and upper-back work keeps you comfortable in the saddle.',['Endurance ride 45–90 min, steady Zone 2','Sweet-spot: 3 × 10 min hard / 5 min easy','Hill repeats: 5 × 3 min seated climbs','Cadence drills: 5 × 1 min at 100+ rpm']],
+ ['swimming','Swimming','Water',['vpull','reardelt','core','vpush'],'Dryland strength emphasises lats, shoulder stability and core. Keep pressing volume moderate to protect the shoulders.',['Pool: 400 m easy + 4 × 100 m drills (catch-up, fingertip drag)','Pool: 8 × 50 m fast / 20 s rest','Pool: 1 × 800 m steady, count strokes per length','Dryland: band straight-arm pulldowns 3 × 15']],
+ ['triathlon','Triathlon','Endurance',['hinge','core','reardelt','lunge'],'Rotate swim / bike / run through the week with at least one brick (bike → run) session. Keep strength work short and heavy-ish.',['Swim 20–30 min technique + aerobic sets','Bike 45–75 min steady','Brick: 30 min bike then 10 min run','Run 25–40 min easy']],
+ ['rowing','Rowing / Kayak / Canoe','Water',['hinge','hpull','core','squat'],'Power comes from legs → back → arms. Build posterior-chain strength and a bulletproof core.',['Steady row/paddle 30–50 min','Intervals: 8 × 500 m hard / 1 min rest','Technique: 10 min pick drill','Power strokes: 10 × 10 strokes max effort']],
+ ['surfing','Surfing / Paddleboarding','Water',['vpull','core','hpush','reardelt'],'Paddle endurance, pop-up power and hip mobility. Train shoulders and lower back for balance.',['Paddling: 5 × 3 min fast arm circles (or swim)','Pop-up practice: 4 × 8 burpee-style pop-ups','Balance board / single-leg stands 3 × 45 s','Mobility: hips and thoracic spine 8 min']],
+ ['crossfit','CrossFit / HIIT classes','Strength & Power',['hinge','vpush','core','squat'],'Mix heavy lifting with short metabolic circuits. Keep technique sharp and manage fatigue.',['AMRAP 12 min: 5 pull-ups, 10 push-ups, 15 squats','EMOM 10 min: alternate 10 swings / 12 burpees','Rowing/bike 5 × 500 m or 1 min hard','Skill work: handstand or double-under practice 8 min']],
+ // Team sports
+ ['football','Football / Soccer','Team',['lunge','hinge','core','calves'],'Mix speed, change-of-direction and stamina. Single-leg strength and hamstring work are key for sprinting and injury protection.',['Sprints: 8 × 20 m, walk-back recovery','Shuttle runs 5-10-5 × 6','Ladder/cone agility footwork × 6 patterns','Interval run: 8 × 1 min hard / 1 min easy']],
+ ['basketball','Basketball','Team',['lunge','squat','calves','core'],'Build explosive legs and ankle/knee stability. Land softly and keep jump volume modest.',['Defensive slides: 6 × 20 s','Vertical jump: 5 × 4 (full recovery)','Suicide sprints × 5','Ball-handling circuit 10 min']],
+ ['volleyball','Volleyball','Team',['squat','vpush','reardelt','core'],'Jump height, shoulder health and landing mechanics. Protect knees and shoulders with rear-delt and hamstring work.',['Approach jumps: 5 × 5','Lateral shuffle + dive-roll footwork × 8','Medicine-ball overhead throws 4 × 8','Serve/spike shoulder band routine 3 × 15']],
+ ['handball','Handball / Water polo','Team',['vpush','core','lunge','reardelt'],'Throwing power, repeat sprints and shoulder resilience.',['Sprints: 10 × 15 m','Band/med-ball throws 4 × 8 each arm','Jump-lunge shuffles 4 × 12','Interval circuit 10 × 40 s on / 20 s off']],
+ ['rugby','Rugby / American football','Team',['squat','hinge','hpush','core'],'Mass, power and collision-readiness: heavy compound lifts, sprint work and neck/trunk strength.',['Sprints: 8 × 30 m','Sled/hill push 6 × 20 m (or heavy walking lunges)','Tackle-position mobility & neck isometrics 3 × 20 s','Shuttle conditioning 6 × 40 s']],
+ ['hockey','Ice / Field hockey','Team',['lunge','hinge','core','glutes'],'Skating stride and field-hockey crouch need strong glutes, adductors and core.',['Lateral bounds 4 × 8/side','Sprint intervals 10 × 20 s / 40 s','Adductor copenhagen plank 3 × 20 s/side','Wrist & forearm stick-control drills']],
+ ['baseball','Baseball / Softball / Cricket','Team',['hinge','core','reardelt','lunge'],'Rotational power, shoulder/elbow health and short sprints. Keep throwing volume managed.',['Med-ball rotational throws 4 × 6/side','Sprints: 6 × 30 m','Shoulder care band routine 3 × 15','Hip-hinge & rotation mobility 8 min']],
+ ['ultimate','Ultimate frisbee / Lacrosse','Team',['lunge','hinge','core','calves'],'Repeat sprints and cutting with strong hamstrings and ankles.',['Sprint-cut drills × 8','Interval run 8 × 1 min / 1 min','Lateral bounds 4 × 8','Throwing accuracy 10 min']],
+ // Racket
+ ['tennis','Tennis / Badminton / Padel','Racket',['lunge','core','reardelt','hinge'],'Prioritise leg drive, rotational core and shoulder health (rear delts, rotator cuff).',['Split-step & first-step drills × 10','Lateral shuffles: 6 × 20 s','Med-ball/band rotational throws 3 × 8/side','Court sprints: 8 × 15 s']],
+ ['tabletennis','Table tennis / Squash','Racket',['lunge','core','reardelt','calves'],'Quick feet, wrist/shoulder stability and fast reactions.',['Footwork shuffles 6 × 30 s','Reaction ball drops × 20','Lunge-and-reach 4 × 10/side','Interval rally practice 6 × 2 min']],
+ ['golf','Golf','Precision',['core','hinge','reardelt','glutes'],'Rotational power, hip and thoracic mobility, and lower-back protection. Warm up spine and hips before every round.',['Thoracic rotations & hip turns 3 × 10/side','Med-ball rotational throws 3 × 8/side','Single-leg balance with club swing 3 × 30 s','Walk 30–45 min brisk (golf-day endurance)']],
+ // Combat
+ ['boxing','Boxing / Kickboxing / Muay Thai','Combat',['hpull','core','vpush','hinge'],'Rotational core, strong pulling muscles and short-burst conditioning transfer best. Avoid heavy leg work the day before sparring.',['Shadow boxing/kicks: 6 × 3 min rounds, 1 min rest','Heavy bag: 5 × 2 min rounds','Jump rope or skipping drills: 6 × 2 min','Neck, grip & rotational core circuit']],
+ ['mma','MMA / Wrestling / Judo / BJJ','Combat',['hpull','hinge','core','vpull'],'Grip, neck, hip power and repeated high-intensity rounds. Mobility for hips and spine is essential.',['Drilling rounds 5 × 5 min at 70%','Sprawl/shoot burpee ladder 6 × 30 s','Grip circuit: farmer holds / towel hangs 4 × 30 s','Hip escape/bridge drills 3 × 10']],
+ ['karate','Karate / Taekwondo','Combat',['lunge','core','calves','hinge'],'Explosive kicks need hip mobility, hamstring flexibility and single-leg stability.',['Kicking combos 6 × 2 min','Stance work & kata 10 min','Dynamic hip/hamstring mobility 3 × 10/side','Reaction footwork drills 6 × 30 s']],
+ ['fencing','Fencing','Combat',['lunge','calves','core','reardelt'],'Explosive lunges, one-sided loading balance and fast footwork.',['Advance-lunge drills 6 × 10','Footwork ladder × 6 patterns','Reaction starts 8 × 3 m','Opposite-side strength balance 3 × 12']],
+ // Strength / power sports
+ ['powerlifting','Powerlifting','Strength & Power',['squat','hinge','hpush','core'],'Peak the big three: heavy low-rep work with accessory volume for weak points and bracing practice.',['Competition-style squat singles @ 80–85%','Bench pause reps 5 × 3','Deadlift speed pulls 6 × 2 @ 60%','Bracing / belt-free core practice 3 × 8']],
+ ['weightlifting','Olympic weightlifting','Strength & Power',['squat','hinge','vpush','core'],'Technique first: snatch & clean-and-jerk variations, then strength and mobility (ankles, hips, shoulders).',['Snatch technique: pulls + hang snatch 6 × 2','Clean & jerk complexes 5 × 1+1','Front squats 4 × 3','Overhead mobility 10 min']],
+ ['bodybuilding','Bodybuilding / Physique','Strength & Power',['biceps','triceps','reardelt','glutes'],'High volume, full range of motion, mind-muscle focus and lagging-muscle priority.',['Weak-point specialisation: 3 extra sets 12–15 reps','Mind-muscle tempo work 3 × 10 (3-1-1)','Posing/stretch mobility 8 min','Low-intensity cardio 20 min (optional)']],
+ ['calisthenics','Calisthenics / Gymnastics','Strength & Power',['vpull','vpush','core','hpush'],'Master progressions: pull-up, dip, handstand, L-sit, front lever. Keep joints warm and wrists conditioned.',['Handstand wall practice 5 × 30 s','L-sit holds 5 × 15 s','Muscle-up / pull-up progressions 5 × 3–5','Wrist & shoulder prep 8 min']],
+ ['strongman','Strongman / Highland games','Strength & Power',['hinge','squat','vpush','core'],'Heavy carries, loading events and grip strength. Build capacity then specificity.',['Farmer carries 5 × 30 m heavy','Yoke/sandbag carries 4 × 20 m','Stone/sandbag loading 5 × 3','Grip finisher: dead hang 3 × max']],
+ ['athletics','Sprinting / Jumping / Throwing','Strength & Power',['hinge','squat','core','calves'],'Speed and power: heavy strength, plyometrics and technique. Full recovery between hard efforts.',['Acceleration sprints 6 × 30 m','Plyo: bounds & hops 4 × 6','Technical event drills 15 min','Med-ball throws 4 × 5']],
+ ['crosscountry','Cross-country skiing / Nordic','Winter',['hinge','hpull','core','lunge'],'Full-body endurance with poling power; build lats, triceps and hips.',['Roller-ski/ski or run steady 45–75 min','Double-pole intervals 6 × 2 min (band or ski)','Ski-striding bounds 4 × 20 m','Uphill hike/run 4 × 4 min']],
+ // Winter / outdoor
+ ['skiing','Skiing / Snowboarding','Winter',['squat','lunge','core','glutes'],'Eccentric quad strength, hip/ankle stability and balance protect knees on the slopes. Start 6–8 weeks before the season.',['Wall sits 4 × 45 s','Skater jumps 4 × 10/side','Balance-board / single-leg stands 3 × 40 s','Interval cycling 6 × 2 min hard']],
+ ['iceskating','Ice skating / Speed skating','Winter',['lunge','glutes','core','squat'],'Deep-knee-bend endurance, adductors and balance.',['Skater squat-and-glide 4 × 12/side','Lateral bounds 4 × 8','Low squat holds 4 × 30 s','Interval bike 8 × 40 s / 20 s']],
+ ['climbing','Rock climbing / Bouldering','Outdoor',['hpull','reardelt','core','triceps'],'Balance all the pulling with pushing and rear-delt work to keep shoulders and elbows healthy. Train fingers carefully.',['Hangs from bar: 5 × 10 s','Climb/traverse 4 × 4 min easy-moderate','Core: hanging leg raises or L-sits 4 × max','Antagonist push-ups 3 × 15']],
+ ['hiking','Hiking / Mountaineering','Outdoor',['squat','lunge','calves','core'],'Loaded step-ups, eccentric downhill strength and long aerobic base. Train with a pack.',['Weighted-pack hike 60–180 min','Step-ups with pack 4 × 12/side','Stair or hill repeats 6 × 2 min','Balance & ankle stability 3 × 40 s']],
+ ['obstacle','Obstacle racing / Military fitness','Outdoor',['vpull','hinge','core','lunge'],'Grip, running endurance, carries and bodyweight strength.',['Run 2 km + 10 burpees × 3 rounds','Carries (sandbag/backpack) 5 × 40 m','Pull-up / hang hold circuit 4 × max','Crawls: bear/lizard 4 × 20 m']],
+ // Mind-body & precision
+ ['yoga','Yoga / Pilates','Mind-body',['core','glutes','reardelt','hinge'],'Add strength to complement your flexibility, and keep the practice for recovery and mobility.',['Sun salutations 5 rounds','Balance flow 15 min','Pilates core series 15 min','Breathwork 5 min']],
+ ['dance','Dance / Cheerleading','Mind-body',['calves','glutes','core','lunge'],'Jump-landing control, ankle strength, hip mobility and stamina. Keep lower-limb loading balanced.',['Dance cardio 20 min at performance pace','Jumps/landings 4 × 6 (soft landings)','Turnout & hip mobility 8 min','Core & balance circuit 10 min']],
+ ['equestrian','Horse riding','Precision',['core','glutes','reardelt','lunge'],'Core stability, inner thigh strength and balance while seated or posting.',['Seat balance: single-leg stands 3 × 40 s','Adductor squeezes 3 × 15','Posting-trot squats 4 × 20','Spine mobility 8 min']],
+ ['shooting','Archery / Shooting','Precision',['reardelt','core','hpull','vpush'],'Static shoulder stability, back strength and breathing control.',['Draw-hold with band 6 × 15 s','Steady-aim holds 5 × 30 s','Breathing practice 5 min','Rear-delt / scapular band series 3 × 15']],
+ ['skate','Skateboarding / BMX / Roller skating','Outdoor',['lunge','calves','core','glutes'],'Ankle strength, landing control and fall-resilience; keep wrists and shoulders strong.',['Balance board 3 × 45 s','Ollie-style jumps 4 × 6','Single-leg squats 3 × 8','Wrist and ankle mobility 6 min']],
+ ['esports','Desk life / Esports / Gaming','Mind-body',['reardelt','hpull','core','glutes'],'Counter hours of sitting: posture muscles, hip flexor stretching, wrists and eye breaks.',['Posture reset: wall angels 3 × 12','Wrist extensor/flexor stretches 3 × 30 s','Brisk walk 20 min after sessions','Hip-flexor stretch 3 × 40 s/side']]
+];
+const SPORTS = {};
+SPORT_DEFS.forEach(([k,label,cat,bias,note,drills])=>{ SPORTS[k] = {label, cat, desc:cat, bias, note, drills}; });
 
 /* ---------- Helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -278,8 +305,10 @@ function renderResult(p, plan, st){
 function initForm(){
   $('goals').innerHTML = Object.entries(GOALS).map(([k,v],i)=>
     `<label class="choice"><input type="radio" name="goal" value="${k}" ${i===1?'checked':''}><span><b>${v.label}</b><i>${v.desc}</i></span></label>`).join('');
-  $('sports').innerHTML = Object.entries(SPORTS).map(([k,v],i)=>
-    `<label class="choice"><input type="radio" name="sport" value="${k}" ${i===0?'checked':''}><span><b>${v.label}</b><i>${v.desc}</i></span></label>`).join('');
+  const cats = [...new Set(SPORT_DEFS.map(d=>d[1]))];
+  $('sportsel').innerHTML = cats.map(c=>`<optgroup label="${c}">${SPORT_DEFS.filter(d=>d[1]===c).map(d=>`<option value="${d[0]}">${d[1]}</option>`).join('')}</optgroup>`).join('');
+  $('sportsel').onchange = ()=>{ const sp = SPORTS[$('sportsel').value]; $('sportdesc').textContent = sp.drills.length ? 'Includes sport-specific session: '+sp.drills[0]+' …' : 'Pure strength & fitness training.'; };
+  $('sportsel').onchange();
   $('equip').innerHTML = `<label class="chip fixed"><input type="checkbox" checked disabled><span>✔ Bodyweight (always)</span></label>` +
     EQUIP.map(([k,l])=>`<label class="chip"><input type="checkbox" name="equip" value="${k}"><span>${l}</span></label>`).join('');
 
@@ -301,7 +330,7 @@ function initForm(){
       height: imp? $('height').value*2.54 : +$('height').value,
       activity:+$('activity').value, level:+$('level').value, limit:$('limit').value,
       goal:document.querySelector('input[name=goal]:checked').value,
-      sport:document.querySelector('input[name=sport]:checked').value,
+      sport:$('sportsel').value,
       equip:[...document.querySelectorAll('input[name=equip]:checked')].map(x=>x.value),
       days:+$('days').value, minutes:+$('minutes').value
     };
