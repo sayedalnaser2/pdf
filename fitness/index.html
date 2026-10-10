@@ -14,6 +14,7 @@
 </header>
 
 <main>
+<div id="resume" class="card" hidden></div>
 <form id="form" class="card" autocomplete="off">
   <h2>1 · About you</h2>
   <div class="grid">
@@ -72,6 +73,13 @@
     </label>
     <label>Time per session
       <select id="minutes"><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>60 min</option><option value="75">75 min</option><option value="90">90 min</option></select>
+    </label>
+    <label>Program length
+      <select id="weeks">
+        <option value="4">4 weeks (1 block)</option>
+        <option value="8" selected>8 weeks (2 blocks)</option>
+        <option value="12">12 weeks (3 blocks)</option>
+      </select>
     </label>
     <label>Rest between sets
       <select id="rest">
