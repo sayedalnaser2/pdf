@@ -19,3 +19,8 @@ Watermark, Page numbers, Redact (true, with regex/email/phone finder), OCR, Meta
 
 Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.js from a CDN on first use.
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).
+
+## NutriPlan (`diet/`)
+A separate static page: open `diet/index.html` (via `python3 -m http.server`). Calculates calories/carbs/protein/fat
+(Mifflin–St Jeor), builds a 7-day meal plan with a full recipe for every meal, and lets you tick the ingredients you
+have to get recipe suggestions ranked by what you can already make.
