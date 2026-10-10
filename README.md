@@ -19,3 +19,7 @@ Watermark, Page numbers, Header & footer, Fill forms, Extract text, Grayscale, R
 
 Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.js from a CDN on first use.
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).
+
+## FitPlan (`fitness/`)
+A separate static page: personal workout-plan builder. Enter age, sex, weight, height, activity and experience, then pick a goal,
+sport and available equipment. Open `fitness/index.html` (or `python3 -m http.server` → `/fitness/`).
