@@ -19,3 +19,9 @@ Watermark, Page numbers, Header & footer, Fill forms, Extract text, Redact (true
 
 Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.js from a CDN on first use.
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).
+
+## Bahrain Passport Reader (`passport.html`)
+Batch-reads the MRZ (the two `P<BHR…` lines) from many passport scans (JPG/PNG/PDF), verifies all ICAO check digits,
+and shows one editable sheet (name, passport no., nationality, DOB, sex, expiry, CPR/personal no.) with Excel / CSV / clipboard export.
+Rows that fail a check digit are flagged ⚠; edit the MRZ text and the fields re-calculate. Runs locally (OCR via tesseract.js from a CDN on first use).
+Parser: `mrz.js`.
