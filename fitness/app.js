@@ -12,7 +12,7 @@ const GOALS = {
 
 const EQUIP = [
   ['dumbbell','Dumbbells'],['barbell','Barbell & plates'],['bench','Bench'],['kettlebell','Kettlebell'],
-  ['bands','Resistance bands'],['pullup','Pull-up bar'],['machine','Gym machines / cables'],['cardio','Cardio machine (bike, treadmill, rower)']
+  ['bands','Resistance bands'],['medball','Medicine ball'],['pullup','Pull-up bar'],['machine','Gym machines / cables'],['cardio','Cardio machine (bike, treadmill, rower)']
 ];
 
 // Exercise: [name, pattern, required equipment ("a+b" = needs both), highImpact]
@@ -108,7 +108,9 @@ SPORT_DEFS.forEach(([k,label,cat,bias,note,drills])=>{ SPORTS[k] = {label, cat, 
 
 /* ---------- Helpers ---------- */
 const $ = id => document.getElementById(id);
-const LABELS = {squat:'Squat',hinge:'Hinge',lunge:'Single-leg',hpush:'Push',vpush:'Overhead push',hpull:'Row',vpull:'Vertical pull',core:'Core',biceps:'Biceps',triceps:'Triceps',calves:'Calves',glutes:'Glutes',reardelt:'Rear delts'};
+const LABELS = {squat:'Squat',hinge:'Hinge',lunge:'Single-leg',hpush:'Push',vpush:'Overhead push',hpull:'Row',vpull:'Vertical pull',core:'Core',biceps:'Biceps',triceps:'Triceps',calves:'Calves',glutes:'Glutes',reardelt:'Rear delts',
+  plyo:'Jump power',plyoU:'Upper-body power',rot:'Rotation',ham:'Hamstrings',adduct:'Adductors / hips',ankle:'Ankles & balance',shoulder:'Shoulder health',grip:'Grip & forearms',carry:'Carry',neck:'Neck',olympic:'Olympic-style power',sdelt:'Side delts',fly:'Chest isolation',quad:'Quads'};
+EX.push.apply(EX, EX_SPORT);
 const DAYNAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const TRAIN_DAYS = {2:[0,3],3:[0,2,4],4:[0,1,3,4],5:[0,1,2,4,5],6:[0,1,2,3,4,5]};
 
@@ -125,11 +127,15 @@ const SPLITS = {
 
 function has(sel, req){ return req==='none' || req.split('+').every(t=>sel.has(t)); }
 
+const WIDE_ROT = new Set(['core','calves','ankle','shoulder','grip','rot','adduct','ham','plyo','plyoU','carry','neck','sdelt','fly','quad','olympic']);
 function pickEx(p, ctx, off){
-  let c = EX.filter(e=>e[1]===p && has(ctx.equip,e[2]) && !(ctx.lowImpact && e[3]) && !ctx.used.has(e[0]));
-  if(!c.length) c = EX.filter(e=>e[1]===p && e[2]==='none' && !(ctx.lowImpact && e[3]) && !ctx.used.has(e[0]));
+  const ok = e=>e[1]===p && !(ctx.lowImpact && e[3]) && !ctx.used.has(e[0]) && (!e[5] || e[5].includes(ctx.sport));
+  let c = EX.filter(e=>ok(e) && has(ctx.equip,e[2]));
+  if(!c.length) c = EX.filter(e=>ok(e) && e[2]==='none');
   if(!c.length) return null;
-  const rot = (p==='core'||p==='calves') ? Math.min(c.length,3) : Math.min(c.length,2);
+  const pref = (ctx.prefer||{})[p];
+  if(pref){ const rk = e=>{ const k = pref.indexOf(e[0]); return k<0 ? 99 : k; }; c = c.slice().sort((a,b)=>rk(a)-rk(b)); }
+  const rot = WIDE_ROT.has(p) ? Math.min(c.length,3) : Math.min(c.length,2);
   const e = c[off % rot]; ctx.used.add(e[0]); return e[0];
 }
 
@@ -156,10 +162,13 @@ function demand(name, pat, eq){
   if(pat==='lunge') return [0.75,'single-leg, dumbbell'];
   return [0.8, big?'dumbbell/kettlebell lower body':'dumbbell/kettlebell compound'];
 }
-function restSec(goal, name, pat, eq, level, age, pref, sport){
+function restSec(goal, name, pat, eq, level, age, pref, sport, opt){
+  opt = opt || {};
   let top = {strength:180, muscle:105, fat:50, endurance:40, mobility:30, general:80}[goal]; // rest after a heavy compound
   const sr = (typeof REST_DEFS!=='undefined' && REST_DEFS[sport]) || {};
   if(sr.top && (goal==='strength'||goal==='muscle'||goal==='general')) top = sr.top;
+  if(opt.heavy) top = Math.max(top, 150);
+  if(opt.fixed){ const sec = Math.max(30, Math.round(opt.fixed.sec*(REST_PREF[pref]||1)/5)*5); return {sec, why:opt.fixed.why}; }
   const [f, why] = demand(name, pat, eq);
   let r = top*f;
   if(sr.upper && ['hpush','vpush','hpull','vpull'].includes(pat)) r *= sr.upper;
@@ -205,7 +214,8 @@ function saveProg(prog){ try{ localStorage.setItem(PROG_KEY, JSON.stringify(prog
 const roundW = (w,imp)=> imp ? Math.round(w) : Math.round(w*2)/2;
 
 // Double progression: reps first, then weight. Feedback (easy / ok / hard) tunes the jump.
-function nextTarget(e, imp){
+function nextTarget(e, imp){ const t = nextTarget0(e, imp); t.unit = e.unit; return t; }
+function nextTarget0(e, imp){
   const inc = imp ? 5 : 2.5, fb = e.fb || 'ok', r = +e.r, w = +e.w || 0;
   const lo = e.lo || 8, hi = e.hi || 12;
   if(e.time){ const next = fb==='hard' ? r : Math.min(90, r + (fb==='easy'?10:5)); return {w:0, r:next, time:true, note: next>r?'Hold 5–10 s longer':'Repeat — build control first'}; }
@@ -251,7 +261,8 @@ function buildPlan(p, wk){
   const equip = new Set(p.equip);
   const lowImpact = p.limit==='impact' || p.bmi>=30 || p.age>=55;
   const sport = SPORTS[p.sport];
-  const ctx = {equip, lowImpact, used:new Set()};
+  const pl = PLANS[p.sport] || PLANS.gym;
+  const ctx = {equip, lowImpact, used:new Set(), sport:p.sport, prefer:pl.prefer};
   const lvl = p.level;
   const days = [];
   const split = SPLITS[p.days];
@@ -260,28 +271,42 @@ function buildPlan(p, wk){
   split.forEach(([name,slots],i)=>{
     ctx.used = new Set();
     let sl = slots.slice();
-    if(sport.bias.length && !mobilityOnly){ const b = sport.bias[i % sport.bias.length]; if(!sl.includes(b)) sl.push(b); }
+    let picks = [];
+    if(!pl.focus.length && sport.bias.length && !mobilityOnly){ const b = sport.bias[i % sport.bias.length]; if(!sl.includes(b)) sl.push(b); }
     // Time budget: sets × (≈40 s working + rest) + 1 min setup per exercise, within session length minus warm-up/cool-down
     const budget = p.minutes - 10;
-    sl = sl.filter(x=>COMPOUND.has(x)).concat(sl.filter(x=>!COMPOUND.has(x)));
+    if(pl.focus.length && !mobilityOnly){
+      sl = sl.filter(x=>!pl.skip.includes(x));
+      const per = Math.min(3, pl.focus.length);
+      for(let k=0;k<per;k++){ const f = pl.focus[(i*per+k) % pl.focus.length]; if(!picks.includes(f)) picks.push(f); }
+      const comp = sl.filter(x=>COMPOUND.has(x)), others = sl.filter(x=>!COMPOUND.has(x) && !picks.includes(x));
+      sl = comp.slice(0,2).concat(picks.filter(x=>!comp.slice(0,2).includes(x)), comp.slice(2).filter(x=>!picks.includes(x)), others);
+    } else sl = sl.filter(x=>COMPOUND.has(x)).concat(sl.filter(x=>!COMPOUND.has(x)));
     const rows = []; let used = 0;
     for(const pat of sl){
       const n = pickEx(pat, ctx, i + (COMPOUND.has(pat) ? 0 : (wk.rot ?? wk.block)));
       if(!n) continue;
       const ex = EX.find(e=>e[0]===n && e[1]===pat) || EX.find(e=>e[0]===n);
-      const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age);
-      const rs = restSec(p.goal, n, pat, ex[2], lvl, p.age, p.rest, p.sport);
+      const rx = ex[4] ? RX[ex[4]] : null;
+      const heavy = !!(pl.heavy && COMPOUND.has(pat) && !rx && !['fat','mobility'].includes(p.goal));
+      const sc = rx ? {s: lvl===0?Math.max(2,rx.s-1):rx.s, reps:rx.reps}
+               : heavy ? {s: lvl===0?2:3, reps:'4–6'}
+               : scheme(p.goal, lvl, COMPOUND.has(pat), p.age);
+      const rs = restSec(p.goal, n, pat, ex[2], lvl, p.age, p.rest, p.sport, {fixed: rx?{sec:rx.rest,why:rx.why}:null, heavy});
       const t = sc.s*(40+rs.sec)/60 + 1;
       if(rows.length>=2 && used+t>budget){ ctx.used.delete(n); continue; }
-      const isTime = ['Plank','Side plank','Dead bug'].includes(n);
-      const reps = isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps;
-      rows.push({n, tag:LABELS[pat], sets:weekSets(sc.s, COMPOUND.has(pat), wk, p.goal), reps, rest:fmtRest(rs.sec), why:rs.why,
-        time: isTime && n!=='Dead bug', range: isTime ? (n==='Dead bug'?[8,12]:[30,45]) : parseRange(sc.reps)});
+      const isTime = !rx && ['Plank','Side plank','Dead bug'].includes(n);
+      const reps = rx ? rx.reps : isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps;
+      rows.push({n, tag:LABELS[pat], sets:weekSets(sc.s, COMPOUND.has(pat) && !rx, wk, p.goal), reps, rest:fmtRest(rs.sec), why:rs.why,
+        sp: picks.includes(pat),
+        time: rx ? !!rx.time : (isTime && n!=='Dead bug'), unit: rx && rx.unit,
+        range: rx ? rx.range : heavy ? [4,6] : isTime ? (n==='Dead bug'?[8,12]:[30,45]) : parseRange(sc.reps)});
       used += t;
     }
     const estMin = Math.round(used + 10);
 
-    const day = {name, kind:'strength', rows, estMin, finisher:null, mobility:[], notes:[]};
+    const dayName = picks.length ? name + ' + ' + picks.map(x=>LABELS[x]).join(' / ') : name;
+    const day = {name: dayName, kind:'strength', rows, estMin, finisher:null, mobility:(!mobilityOnly && pl.mob.length)?pl.mob:[], notes:[]};
     if(mobilityOnly){
       day.kind = 'mobility'; day.rows = [];
       day.mobility = MOBILITY.slice((i*4)%MOBILITY.length).concat(MOBILITY).slice(0,8);
@@ -295,10 +320,15 @@ function buildPlan(p, wk){
     days.push(day);
   });
 
-  // Replace last day with a sport session
-  if(sport.drills.length && p.days>=3){
-    days[days.length-1] = {progress:sportProgress(wk), name:`${sport.label} session`, kind:'sport', rows:[], drills:sport.drills.slice(0, p.minutes>=60?4:3), sportKey:p.sport, mobility:MOBILITY.slice(0,2), core:['Plank','Dead bug'], notes:[]};
-  } else if(sport.drills.length){
+  // Sport sessions: replace the last day(s) with sport-specific work
+  if(sport.drills.length && p.days>=3 && !pl.nosd){
+    const n = (pl.sd && pl.sd[p.days]) || 1;
+    for(let j=0;j<n;j++){
+      const idx = days.length-1-j;
+      const rotd = sport.drills.slice((n-1-j)*2 % sport.drills.length).concat(sport.drills).slice(0, p.minutes>=60?4:3);
+      days[idx] = {progress:sportProgress(wk), name: n>1 ? `${sport.label} session ${n-j}` : `${sport.label} session`, kind:'sport', rows:[], drills:rotd, sportKey:p.sport, mobility:pl.mob.length?pl.mob:MOBILITY.slice(0,2), core:['Plank','Dead bug'], notes:[]};
+    }
+  } else if(sport.drills.length && !pl.nosd){
     days[days.length-1].finisher = 'Sport finisher: ' + sport.drills[0] + ' — ' + sportProgress(wk);
   }
   // Endurance goal: replace one day with steady cardio
@@ -333,6 +363,14 @@ function stats(p){
 function bmiCat(b){ return b<18.5?'Underweight':b<25?'Healthy':b<30?'Overweight':'Obese'; }
 
 /* ---------- Render ---------- */
+function planCard(p, plan){
+  const pl = PLANS[p.sport]; if(!pl || !pl.why) return '';
+  const names = [...new Set(plan.flatMap(d=>d.rows).filter(r=>r.sp).map(r=>r.n))];
+  const src = pl.src && PLAN_SRC[pl.src] ? ` <a href="${PLAN_SRC[pl.src][1]}" target="_blank" rel="noopener">${PLAN_SRC[pl.src][0]}</a>` : '';
+  return `<div class="notes"><b>Why this plan fits ${SPORTS[p.sport].label}</b><p>${pl.why}</p>
+    ${names.length?`<p><b>⭐ Sport-specific exercises this week:</b> ${names.join(' · ')}</p>`:''}
+    <p class="ev">Evidence: ${REST_EV[pl.ev]}.${src}</p></div>`;
+}
 function restGuide(key){
   const r = REST_DEFS[key]; if(!r||!r.rules.length) return '';
   return `<h4>Rest guide for ${SPORTS[key].label}</h4><ul class="rules">${r.rules.map(x=>`<li>${x}</li>`).join('')}</ul><p class="ev">Evidence: ${REST_EV[r.ev]}</p>`;
@@ -340,8 +378,8 @@ function restGuide(key){
 
 function fmtTarget(t, imp, deload, r){
   const U = imp?'lb':'kg';
-  if(deload) return `Deload: ${t.w>0?roundW(t.w*0.9,imp)+' '+U+' × ':''}${t.time?(r.range?r.range[0]:t.r)+' s':(r.range?r.range[0]:t.r)+' reps'} — easy`;
-  return `🎯 Target: ${t.w>0?t.w+' '+U+' × ':''}${t.r} ${t.time?'s':'reps'} — ${t.note}`;
+  if(deload) return `Deload: ${t.w>0?roundW(t.w*0.9,imp)+' '+U+' × ':''}${t.time?(r.range?r.range[0]:t.r)+' s':(r.range?r.range[0]:t.r)+' '+(t.unit||'reps')} — easy`;
+  return `🎯 Target: ${t.w>0?t.w+' '+U+' × ':''}${t.r} ${t.time?'s':(t.unit||'reps')} — ${t.note}`;
 }
 
 function progressSummary(prog){
@@ -350,7 +388,7 @@ function progressSummary(prog){
     if(weekInfo(k).deload || !prog.log[k]) continue;
     for(const [ex,e] of Object.entries(prog.log[k])){ if(!(e && e.r>0)) continue; if(!first[ex]) first[ex]=e; last[ex]=e; }
   }
-  const f = e => `${+e.w>0?e.w+' '+U+' × ':''}${e.r}${e.time?' s':' reps'}`;
+  const f = e => `${+e.w>0?e.w+' '+U+' × ':''}${e.r}${e.time?' s':' '+(e.unit||'reps')}`;
   const rows = Object.keys(first).map(ex=>{
     const a=first[ex], b=last[ex], dw=(+b.w||0)-(+a.w||0), dr=(+b.r)-(+a.r);
     const d = dw!==0 ? `${dw>0?'+':''}${dw} ${U}` : (dr!==0 ? `${dr>0?'+':''}${dr} ${e_unit(b)}` : 'same');
@@ -358,7 +396,7 @@ function progressSummary(prog){
   });
   return rows.length ? `<details class="notes" open><summary><b>Your progress so far</b></summary><table><thead><tr><th>Exercise</th><th>First logged</th><th>Latest</th><th>Change</th></tr></thead><tbody>${rows.join('')}</tbody></table></details>` : '';
 }
-const e_unit = e => e.time ? 's' : 'reps';
+const e_unit = e => e.time ? 's' : (e.unit||'reps');
 
 function renderProgram(prog){
   const p = prog.p, N = prog.weeks, view = prog.view, wk = weekInfo(view), imp = p.units==='imperial', U = imp?'lb':'kg';
@@ -388,7 +426,7 @@ function renderProgram(prog){
     const e = (prog.log[view]||{})[r.n] || {};
     return `<tr class="logrow"><td colspan="3"><span class="lg">Log:</span>
       ${r.time?'':`<label>Weight (${U}, 0 = bodyweight)<input type="number" inputmode="decimal" step="0.5" min="0" data-ex="${r.n}" data-f="w" value="${e.w??''}"></label>`}
-      <label>${r.time?'Seconds held':'Reps (lowest set)'}<input type="number" inputmode="numeric" min="0" data-ex="${r.n}" data-f="r" value="${e.r??''}"></label>
+      <label>${r.time?'Seconds held':r.unit==='m'?'Metres (lowest set)':'Reps (lowest set)'}<input type="number" inputmode="numeric" min="0" data-ex="${r.n}" data-f="r" value="${e.r??''}"></label>
       <label>Felt<select data-ex="${r.n}" data-f="fb"><option value="ok" ${e.fb==='ok'||!e.fb?'selected':''}>Just right</option><option value="easy" ${e.fb==='easy'?'selected':''}>Too easy</option><option value="hard" ${e.fb==='hard'?'selected':''}>Too hard</option></select></label></td></tr>`;
   };
 
@@ -401,7 +439,7 @@ function renderProgram(prog){
         d.rows.map(r=>{
           const t = targets[r.n];
           const tg = t ? fmtTarget(t, imp, wk.deload, r) : (view===1 ? 'First week: choose a weight where you finish the reps with the left-in-tank cue above' : 'New exercise — find a weight that fits the rep range');
-          return `<tr><td class="n">${r.n}<small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}<small class="tg">${tg}</small></td><td>${r.rest}<small>${r.why}</small></td></tr>${logRow(r)}`;
+          return `<tr><td class="n">${r.sp?'⭐ ':''}${r.n}<small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}<small class="tg">${tg}</small></td><td>${r.rest}<small>${r.why}</small></td></tr>${logRow(r)}`;
         }).join('')
       }</tbody></table>`;
     }
@@ -441,6 +479,7 @@ function renderProgram(prog){
       <div><b>${st.z2[0]}–${st.z2[1]}</b><span>easy cardio heart rate (bpm)</span></div>
     </div>
     ${notes.length?`<div class="notes"><b>Notes for you</b><ul>${notes.map(n=>`<li>${n}</li>`).join('')}</ul></div>`:''}
+    ${planCard(p, plan)}
     ${p.sport!=='gym'?`<div class="notes">${restGuide(p.sport)}</div>`:''}
     <div class="week">${weekStrip}</div>
     ${daysHtml}
@@ -468,7 +507,7 @@ function renderProgram(prog){
     const row = plan.flatMap(d=>d.rows).find(r=>r.n===ex) || {};
     const ent = (L[ex] = L[ex] || {fb:'ok'});
     ent[el.dataset.f] = el.dataset.f==='fb' ? el.value : (el.value===''?undefined:+el.value);
-    if(row.range){ ent.lo=row.range[0]; ent.hi=row.range[1]; } ent.time = !!row.time;
+    if(row.range){ ent.lo=row.range[0]; ent.hi=row.range[1]; } ent.time = !!row.time; ent.unit = row.unit;
     saveProg(prog);
   };
   const cb = $('complete');
@@ -478,7 +517,7 @@ function renderProgram(prog){
     prog.done[view] = true; prog.cur = view+1; prog.view = Math.min(prog.cur, N);
     if(!wk.deload){
       const before = targetsFor(prog, view), after = targetsFor(prog, view+1);
-      const items = Object.keys(L).filter(ex=>after[ex] && L[ex] && L[ex].r>0).map(ex=>{ const t=after[ex]; return `<b>${ex}</b>: ${t.w>0?t.w+' '+U+' × ':''}${t.r} ${t.time?'s':'reps'} — ${t.note}`; });
+      const items = Object.keys(L).filter(ex=>after[ex] && L[ex] && L[ex].r>0).map(ex=>{ const t=after[ex]; return `<b>${ex}</b>: ${t.w>0?t.w+' '+U+' × ':''}${t.r} ${t.time?'s':(t.unit||'reps')} — ${t.note}`; });
       prog.flash = {week:view, items:items.length?items:['No new targets — log weight and reps next time to unlock progression.']};
     } else prog.flash = {week:view, items:['Deload done — fresh legs. Next week starts a new block: same main lifts with your saved targets, plus fresh accessory exercises.']};
     saveProg(prog); renderProgram(prog); window.scrollTo({top:0,behavior:'smooth'});
