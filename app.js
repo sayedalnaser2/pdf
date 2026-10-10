@@ -553,27 +553,6 @@ add({
   }
 });
 
-add({
-  id: 'grayscale', icon: '🌑', title: 'Grayscale PDF', desc: 'Convert colour pages to black & white for cheaper printing.',
-  mount(root) {
-    single(root, 'Choose a PDF', async f => {
-      const bytes = await readBytes(f); const p = panel(); root.innerHTML = ''; root.append(p);
-      p.innerHTML = `<b>${esc(f.name)}</b><p class="note">Pages are rendered at 144 dpi, so text is no longer selectable (use OCR to restore it).</p><button class="primary" id="go">Convert</button>`;
-      $('#go', p).onclick = () => run('Converting…', async prog => {
-        const doc = await openJs(bytes), o = await PDFDocument.create();
-        for (let i = 1; i <= doc.numPages; i++) {
-          const pg = await doc.getPage(i), v = pg.getViewport({ scale: 1 }), c = await renderCanvas(pg, 2), ctx = c.getContext('2d'), im = ctx.getImageData(0, 0, c.width, c.height), a = im.data;
-          for (let k = 0; k < a.length; k += 4) a[k] = a[k + 1] = a[k + 2] = .299 * a[k] + .587 * a[k + 1] + .114 * a[k + 2];
-          ctx.putImageData(im, 0, 0);
-          const img = await o.embedJpg(await (await canvasBlob(c, 'image/jpeg', .8)).arrayBuffer());
-          o.addPage([v.width, v.height]).drawImage(img, { x: 0, y: 0, width: v.width, height: v.height }); prog(i / doc.numPages);
-        }
-        const b = await o.save(); download(b, base(f.name) + '_gray.pdf'); done(p, `✅ ${fmt(bytes.length)} → ${fmt(b.length)}`);
-      });
-    });
-  }
-});
-
 /* ---------- editor (edit + redact) ---------- */
 async function editor(root, file, mode) {
   const bytes = await readBytes(file);
