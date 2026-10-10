@@ -139,18 +139,36 @@ function fmtRest(sec){
   const m = Math.floor(sec/60), r = sec%60;
   return r ? `${m} min ${r} s` : `${m} min`;
 }
-// Rest in seconds: depends on goal, lift type (compound vs accessory), experience, age and chosen preference
-function restSec(goal, compound, level, age, pref){
-  const base = {strength:[180,90], muscle:[105,60], fat:[45,30], endurance:[40,30], mobility:[30,20], general:[75,45]}[goal][compound?0:1];
-  let r = base;
-  if(level===2 && compound && (goal==='strength'||goal==='muscle')) r += 15;
-  if(level===0 && compound) r -= 10;
+// Exercise-specific rest. Returns [factor, reason]: how demanding THIS exercise is relative to a heavy compound lift.
+function demand(name, pat, eq){
+  if(['Plank','Side plank','Dead bug','Bicycle crunch','Russian twist','Hanging knee raise','Cable crunch','Pallof press'].includes(name)) return [0.35,'core / low fatigue'];
+  if(pat==='calves') return [0.4,'small muscle, fast recovery'];
+  if(pat==='reardelt') return [0.4,'small muscle, light load'];
+  if(pat==='biceps'||pat==='triceps') return [0.45,'isolation'];
+  if(/jump|swing/i.test(name)) return [0.9,'explosive — needs full recovery'];
+  if(name==='Pull-ups / chin-ups') return [0.85,'bodyweight pull, high demand'];
+  const bar = eq.includes('barbell'), mach = eq==='machine', band = eq==='bands', none = eq==='none';
+  const big = pat==='squat'||pat==='hinge'||pat==='lunge'||pat==='glutes';
+  if(bar) return [1.0,'heavy barbell compound'];
+  if(band) return [0.55,'band — low load'];
+  if(mach) return [0.8,'machine compound'];
+  if(none) return big ? [0.6,'bodyweight lower body'] : [0.65,'bodyweight upper body'];
+  if(pat==='lunge') return [0.75,'single-leg, dumbbell'];
+  return [0.8, big?'dumbbell/kettlebell lower body':'dumbbell/kettlebell compound'];
+}
+function restSec(goal, name, pat, eq, level, age, pref){
+  const top = {strength:180, muscle:120, fat:50, endurance:40, mobility:30, general:80}[goal]; // rest after a heavy compound
+  const [f, why] = demand(name, pat, eq);
+  let r = top*f;
+  if(level===2 && f>=0.8 && (goal==='strength'||goal==='muscle')) r += 15;
+  if(level===0 && f>=0.8) r -= 10;
   if(age>=50) r += 15;
   r *= REST_PREF[pref] || 1;
-  return Math.max(20, Math.round(r/5)*5);
+  const floor = goal==='mobility'?20:30;
+  return {sec:Math.max(floor, Math.round(r/5)*5), why};
 }
 
-function scheme(goal, level, compound, age, pref){
+function scheme(goal, level, compound, age){
   let s, reps;
   switch(goal){
     case 'strength': s = compound?5:3; reps = compound?'3–5':'6–8'; break;
@@ -163,8 +181,7 @@ function scheme(goal, level, compound, age, pref){
   if(level===0) s = Math.max(2, s-1);
   if(level===2 && (goal==='muscle'||goal==='strength') && compound) s += 1;
   if(age>=50 && reps==='3–5') reps='5–6';
-  const sec = restSec(goal, compound, level, age, pref);
-  return {s, reps, rest:fmtRest(sec), sec};
+  return {s, reps};
 }
 
 const COMPOUND = new Set(['squat','hinge','hpush','vpush','hpull','vpull','lunge','glutes']);
@@ -189,13 +206,15 @@ function buildPlan(p){
     sl = sl.filter(x=>COMPOUND.has(x)).concat(sl.filter(x=>!COMPOUND.has(x)));
     const rows = []; let used = 0;
     for(const pat of sl){
-      const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age, p.rest);
-      const t = sc.s*(40+sc.sec)/60 + 1;
-      if(rows.length>=2 && used+t>budget) continue;
       const n = pickEx(pat, ctx, i);
       if(!n) continue;
+      const ex = EX.find(e=>e[0]===n && e[1]===pat) || EX.find(e=>e[0]===n);
+      const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age);
+      const rs = restSec(p.goal, n, pat, ex[2], lvl, p.age, p.rest);
+      const t = sc.s*(40+rs.sec)/60 + 1;
+      if(rows.length>=2 && used+t>budget){ ctx.used.delete(n); continue; }
       const isTime = ['Plank','Side plank','Dead bug'].includes(n);
-      rows.push({n, tag:LABELS[pat], sets:sc.s, reps: isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps, rest:sc.rest});
+      rows.push({n, tag:LABELS[pat], sets:sc.s, reps: isTime ? (n==='Dead bug' ? '10/side' : '30–45 s') : sc.reps, rest:fmtRest(rs.sec), why:rs.why});
       used += t;
     }
     const estMin = Math.round(used + 10);
@@ -275,7 +294,7 @@ function renderResult(p, plan, st){
     body += `<h4>Warm-up · 5–8 min</h4><p>Easy cardio (light jog, bike or jumping-free marching), arm circles, leg swings, then 1–2 light ramp-up sets of your first exercise.</p>`;
     if(d.rows.length){
       body += `<h4>Workout</h4><table><thead><tr><th>Exercise</th><th>Sets × reps</th><th>Rest</th></tr></thead><tbody>${
-        d.rows.map(r=>`<tr><td class="n">${r.n}<small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}</td><td>${r.rest}</td></tr>`).join('')
+        d.rows.map(r=>`<tr><td class="n">${r.n}<small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}</td><td>${r.rest}<small>${r.why}</small></td></tr>`).join('')
       }</tbody></table>`;
     }
     if(d.strengthRows){
