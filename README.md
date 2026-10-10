@@ -14,8 +14,8 @@ A free, fully client-side alternative to iLovePDF. Open `index.html` through any
 | Slow upload/download | No network round-trip; works offline |
 | Surprise subscription charges | No accounts or payments |
 
-Tools: Edit, Merge, Split, Organize, Compress (lossless or image-based), Images→PDF, PDF→Images,
-Watermark, Page numbers, Redact (true, with regex/email/phone finder), OCR, Metadata cleaner.
+Tools (19): Edit, Merge, Split, Organize, Rotate, Remove pages, Crop, Compress (lossless or image-based), Images→PDF, PDF→Images,
+Watermark, Page numbers, Header & footer, Fill forms, Extract text, Grayscale, Redact (true, with regex finder), OCR, Metadata cleaner.
 
 Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.js from a CDN on first use.
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).

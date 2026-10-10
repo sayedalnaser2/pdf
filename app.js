@@ -1,6 +1,7 @@
 import * as pdfjsLib from './vendor/pdf.min.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
-const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
+const { PDFDocument, StandardFonts, rgb, degrees, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = PDFLib;
+const fieldKind = f => f instanceof PDFCheckBox ? 'check' : f instanceof PDFTextField ? 'text' : (f instanceof PDFDropdown || f instanceof PDFRadioGroup || f instanceof PDFOptionList) ? 'pick' : '';
 
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -426,6 +427,148 @@ add({
         fields.forEach(([n, , s]) => d[s](strip ? '' : $(`[data-k=${n}]`, p).value));
         if (strip) { d.setKeywords([]); d.setCreationDate(new Date(0)); d.setModificationDate(new Date(0)); }
         const b = await d.save(); download(b, base(f.name) + '_clean.pdf'); done(p, `✅ Saved (${fmt(b.length)}).`);
+      });
+    });
+  }
+});
+
+/* ---------- more tools ---------- */
+const pdfTool = (id, icon, title, desc, label, build, extra = {}) => add({
+  id, icon, title, desc, ...extra,
+  mount(root) {
+    single(root, label, async f => {
+      const bytes = await readBytes(f); let d;
+      try { d = await loadLib(bytes); } catch (e) { return toast(friendly(e), true); }
+      const p = panel(); root.innerHTML = ''; root.append(p);
+      p.innerHTML = `<b>${esc(f.name)}</b> – ${d.getPageCount()} pages` + build.html(d);
+      const go = $('#go', p); if (!go) return;
+      go.onclick = () => run('Working…', async prog => {
+        const out = await build.apply({ p, d, bytes, f, prog, n: d.getPageCount() });
+        if (!out) return;
+        download(out.data, base(f.name) + out.suffix + '.pdf');
+        done(p, `✅ Done (${fmt(out.data.length)}).${out.msg || ''}`);
+      });
+    });
+  }
+});
+
+pdfTool('rotate', '🔄', 'Rotate PDF', 'Rotate all pages or just some, by 90°, 180° or 270°.', 'Choose a PDF to rotate', {
+  html: () => `<div class="row"><label class="f">Angle<select id="ang"><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select></label>
+    <label class="f">Pages (blank = all)<input type="text" id="rg" placeholder="e.g. 1-3, 5"></label></div><button class="primary" id="go">Rotate</button>`,
+  async apply({ p, d, n }) {
+    const v = $('#rg', p).value.trim(), idx = new Set(v ? parseRanges(v, n).flat() : d.getPageIndices()), a = +$('#ang', p).value;
+    d.getPages().forEach((pg, i) => idx.has(i) && pg.setRotation(degrees((pg.getRotation().angle + a) % 360)));
+    return { data: await d.save(), suffix: '_rotated' };
+  }
+});
+
+pdfTool('removepages', '🗑️', 'Remove pages', 'Delete unwanted pages by number or range.', 'Choose a PDF', {
+  html: () => `<div class="row"><label class="f">Pages to delete<input type="text" id="rg" placeholder="e.g. 2, 4-6"></label></div><button class="primary" id="go">Delete pages</button>`,
+  async apply({ p, d, n }) {
+    const del = new Set(parseRanges($('#rg', p).value, n).flat());
+    if (del.size >= n) throw new Error('You cannot delete every page.');
+    [...del].sort((a, b) => b - a).forEach(i => d.removePage(i));
+    return { data: await d.save(), suffix: '_trimmed', msg: ` ${del.size} page(s) removed.` };
+  }
+});
+
+pdfTool('crop', '📐', 'Crop PDF', 'Trim margins from every page.', 'Choose a PDF to crop', {
+  html: () => `<div class="row">${['top', 'right', 'bottom', 'left'].map(k => `<label class="f">${k} (pt)<input type="number" id="${k}" value="0" min="0" style="width:90px"></label>`).join('')}</div>
+    <p class="note">72 points = 1 inch (≈ 25.4 mm).</p><button class="primary" id="go">Crop</button>`,
+  async apply({ p, d }) {
+    const m = k => +$('#' + k, p).value || 0;
+    for (const pg of d.getPages()) {
+      const { x, y, width, height } = pg.getMediaBox(), w = width - m('left') - m('right'), h = height - m('top') - m('bottom');
+      if (w < 20 || h < 20) throw new Error('Margins are too large for this page size.');
+      pg.setCropBox(x + m('left'), y + m('bottom'), w, h);
+    }
+    return { data: await d.save(), suffix: '_cropped' };
+  }
+});
+
+pdfTool('headerfooter', '🏷️', 'Header & footer', 'Stamp text (title, date, company) at the top or bottom of every page.', 'Choose a PDF', {
+  html: () => `<div class="row"><label class="f">Header<input type="text" id="h" placeholder="optional"></label><label class="f">Footer<input type="text" id="ft" placeholder="optional"></label>
+    <label class="f">Size<input type="number" id="s" value="10" style="width:70px"></label><label class="f">Align<select id="al"><option value="c">Centre</option><option value="l">Left</option><option value="r">Right</option></select></label></div>
+    <p class="note">Use {date} for today's date.</p><button class="primary" id="go">Apply</button>`,
+  async apply({ p, d }) {
+    const font = await d.embedFont(StandardFonts.Helvetica), size = +$('#s', p).value, al = $('#al', p).value, date = new Date().toLocaleDateString();
+    for (const pg of d.getPages()) {
+      const { width: W, height: H } = pg.getSize();
+      for (const [id, y] of [['h', H - 28], ['ft', 20]]) {
+        const t = safe($('#' + id, p).value.replace('{date}', date)); if (!t) continue; const w = font.widthOfTextAtSize(t, size);
+        pg.drawText(t, { x: al === 'c' ? (W - w) / 2 : al === 'l' ? 36 : W - 36 - w, y, size, font, color: rgb(.2, .2, .2) });
+      }
+    }
+    return { data: await d.save(), suffix: '_stamped' };
+  }
+});
+
+pdfTool('forms', '📝', 'Fill PDF forms', 'Fill in form fields (text, checkboxes, dropdowns) and optionally lock them in.', 'Choose a fillable PDF', {
+  html: d => {
+    const fs = d.getForm().getFields();
+    if (!fs.length) return `<p class="note">This PDF has no fillable form fields. Use <a href="#edit">Edit PDF</a> to type onto it instead.</p>`;
+    return `<div class="row" style="align-items:flex-end">${fs.map((f, i) => {
+      const t = fieldKind(f), nm = esc(f.getName());
+      if (t === 'check') return `<label class="f"><span><input type="checkbox" data-i="${i}" ${f.isChecked() ? 'checked' : ''}> ${nm}</span></label>`;
+      if (t === 'pick') { const sel = [].concat(f.getSelected ? f.getSelected() : []); return `<label class="f">${nm}<select data-i="${i}"><option value=""></option>${f.getOptions().map(o => `<option ${sel.includes(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`; }
+      if (t === 'text') return `<label class="f">${nm}<input type="text" data-i="${i}" value="${esc(f.getText() || '')}"></label>`;
+      return '';
+    }).join('')}</div><label><input type="checkbox" id="flat"> Flatten (make fields non-editable)</label><br><br><button class="primary" id="go">Save filled PDF</button>`;
+  },
+  async apply({ p, d }) {
+    const form = d.getForm(), fs = form.getFields(), font = await d.embedFont(StandardFonts.Helvetica);
+    $$('[data-i]', p).forEach(el => {
+      const f = fs[+el.dataset.i], t = fieldKind(f);
+      if (t === 'check') el.checked ? f.check() : f.uncheck();
+      else if (t === 'text') f.setText(safe(el.value));
+      else if (el.value) f.select(el.value);
+    });
+    form.updateFieldAppearances(font);
+    if ($('#flat', p).checked) form.flatten();
+    return { data: await d.save(), suffix: '_filled' };
+  }
+});
+
+add({
+  id: 'text', icon: '📃', title: 'Extract text', desc: 'Copy or download all text from a PDF as .txt.',
+  mount(root) {
+    single(root, 'Choose a PDF', async f => {
+      const bytes = await readBytes(f); const p = panel();
+      const txt = await run('Extracting…', async prog => {
+        const doc = await openJs(bytes); let all = '';
+        for (let i = 1; i <= doc.numPages; i++) {
+          const tc = await (await doc.getPage(i)).getTextContent(); let line = '';
+          tc.items.forEach(it => { line += it.str + (it.hasEOL ? '\n' : ''); });
+          all += `--- Page ${i} ---\n${line}\n\n`; prog(i / doc.numPages);
+        } return all;
+      }); if (txt === undefined) return;
+      root.innerHTML = ''; root.append(p);
+      const words = (txt.match(/\S+/g) || []).length;
+      p.innerHTML = `<b>${esc(f.name)}</b> – ${words} words ${words < 5 ? '<p class="note">Almost no text found. This looks like a scan; try the OCR tool first.</p>' : ''}
+        <textarea style="width:100%;height:260px;margin:10px 0" readonly></textarea><div class="row"><button class="primary" id="dl">Download .txt</button><button id="cp">Copy all</button></div>`;
+      $('textarea', p).value = txt;
+      $('#dl', p).onclick = () => download(txt, base(f.name) + '.txt', 'text/plain');
+      $('#cp', p).onclick = () => navigator.clipboard.writeText(txt).then(() => toast('Copied'), () => toast('Select the text and copy manually', true));
+    });
+  }
+});
+
+add({
+  id: 'grayscale', icon: '🌑', title: 'Grayscale PDF', desc: 'Convert colour pages to black & white for cheaper printing.',
+  mount(root) {
+    single(root, 'Choose a PDF', async f => {
+      const bytes = await readBytes(f); const p = panel(); root.innerHTML = ''; root.append(p);
+      p.innerHTML = `<b>${esc(f.name)}</b><p class="note">Pages are rendered at 144 dpi, so text is no longer selectable (use OCR to restore it).</p><button class="primary" id="go">Convert</button>`;
+      $('#go', p).onclick = () => run('Converting…', async prog => {
+        const doc = await openJs(bytes), o = await PDFDocument.create();
+        for (let i = 1; i <= doc.numPages; i++) {
+          const pg = await doc.getPage(i), v = pg.getViewport({ scale: 1 }), c = await renderCanvas(pg, 2), ctx = c.getContext('2d'), im = ctx.getImageData(0, 0, c.width, c.height), a = im.data;
+          for (let k = 0; k < a.length; k += 4) a[k] = a[k + 1] = a[k + 2] = .299 * a[k] + .587 * a[k + 1] + .114 * a[k + 2];
+          ctx.putImageData(im, 0, 0);
+          const img = await o.embedJpg(await (await canvasBlob(c, 'image/jpeg', .8)).arrayBuffer());
+          o.addPage([v.width, v.height]).drawImage(img, { x: 0, y: 0, width: v.width, height: v.height }); prog(i / doc.numPages);
+        }
+        const b = await o.save(); download(b, base(f.name) + '_gray.pdf'); done(p, `✅ ${fmt(bytes.length)} → ${fmt(b.length)}`);
       });
     });
   }
