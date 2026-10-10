@@ -10,6 +10,11 @@ const fmt = n => n > 1048576 ? (n / 1048576).toFixed(2) + ' MB' : (n / 1024).toF
 const readBytes = async f => new Uint8Array(await f.arrayBuffer());
 const base = n => n.replace(/\.[^.]+$/, '');
 const hex2rgb = h => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
+const stats = { total: 0 };
+function bump(n) {
+  stats.total += n;
+  const b = $('#filecount'); if (b) b.textContent = `📂 ${stats.total} file${stats.total === 1 ? '' : 's'} added this session`;
+}
 const tick = () => new Promise(r => setTimeout(r, 0));
 
 function toast(msg, err) {
@@ -82,7 +87,7 @@ function dropzone({ accept, multiple, label, onFiles }) {
   d.innerHTML = `<b>${label}</b>or drop ${multiple ? 'files' : 'a file'} here<input type="file" hidden ${multiple ? 'multiple' : ''} accept="${accept}">`;
   const inp = $('input', d);
   const rx = new RegExp('(' + accept.split(',').map(a => a.trim().replace('.', '\\.').replace('/*', '/.*')).join('|') + ')$', 'i');
-  const give = fs => { fs = [...fs].filter(f => rx.test(f.type) || rx.test(f.name)); if (!fs.length) return toast('Unsupported file type', true); onFiles(multiple ? fs : [fs[0]]); };
+  const give = fs => { fs = [...fs].filter(f => rx.test(f.type) || rx.test(f.name)); if (!fs.length) return toast('Unsupported file type', true); const use = multiple ? fs : [fs[0]]; bump(use.length); onFiles(use); };
   d.onclick = () => inp.click();
   inp.onchange = () => { give(inp.files); inp.value = ''; };
   d.ondragover = e => { e.preventDefault(); d.classList.add('over'); };
@@ -96,6 +101,11 @@ function done(root, html) {
 }
 function reorderList(host, items, render, onChange) {
   host.innerHTML = '';
+  if (items.length) {
+    const tot = items.reduce((a, it) => a + (it.bytes ? it.bytes.length : it.size || 0), 0);
+    const sm = document.createElement('div'); sm.className = 'note';
+    sm.innerHTML = `<b>${items.length}</b> file${items.length === 1 ? '' : 's'} selected · ${fmt(tot)} total`; host.append(sm);
+  }
   items.forEach((it, i) => {
     const row = document.createElement('div'); row.className = 'item';
     row.innerHTML = `<span class="nm">${render(it)}</span>
