@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PrivatePDF – Free PDF tools that never upload your files</title>
+<meta name="description" content="Edit, merge, split, compress, redact, OCR and convert PDFs entirely in your browser. No uploads, no limits, no ads, no sign-up.">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#" id="brand">📄 <b>Private</b>PDF</a>
+  <span class="badge" title="Files are processed by your browser. Nothing is sent to any server.">🔒 100% on your device</span>
+</header>
+<main id="app"></main>
+<footer>
+  <p>No uploads · No file-size limits · No daily limits · No ads · No account. Works offline once loaded.</p>
+</footer>
+<div id="busy" hidden><div class="busybox"><div class="spin"></div><div id="busytext">Working…</div><div class="bar"><i id="busybar"></i></div></div></div>
+<div id="toasts"></div>
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
