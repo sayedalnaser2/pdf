@@ -46,7 +46,7 @@ const CARDIO_STEADY = {
   none:['Brisk walk, jog or cycle outdoors']
 };
 const HIIT = [ // [name, equip, highImpact]
-  ['Bike or rower sprints: 20s hard / 40s easy','cardio'],['Kettlebell swings: 30s on / 30s off','kettlebell'],
+  ['Bike or rower sprints: 20s hard / 60s easy (1:3 — sprints need more rest)','cardio'],['Kettlebell swings: 30s on / 30s off','kettlebell'],
   ['Mountain climbers: 30s on / 30s off','none'],['Burpees: 30s on / 30s off','none',1],['High knees: 30s on / 30s off','none',1],
   ['Shadow boxing rounds: 30s on / 30s off','none'],['Fast bodyweight squats: 30s on / 30s off','none']
 ];
@@ -156,13 +156,17 @@ function demand(name, pat, eq){
   if(pat==='lunge') return [0.75,'single-leg, dumbbell'];
   return [0.8, big?'dumbbell/kettlebell lower body':'dumbbell/kettlebell compound'];
 }
-function restSec(goal, name, pat, eq, level, age, pref){
-  const top = {strength:180, muscle:120, fat:50, endurance:40, mobility:30, general:80}[goal]; // rest after a heavy compound
+function restSec(goal, name, pat, eq, level, age, pref, sport){
+  let top = {strength:180, muscle:105, fat:50, endurance:40, mobility:30, general:80}[goal]; // rest after a heavy compound
+  const sr = (typeof REST_DEFS!=='undefined' && REST_DEFS[sport]) || {};
+  if(sr.top && (goal==='strength'||goal==='muscle'||goal==='general')) top = sr.top;
   const [f, why] = demand(name, pat, eq);
   let r = top*f;
+  if(sr.upper && ['hpush','vpush','hpull','vpull'].includes(pat)) r *= sr.upper;
   if(level===2 && f>=0.8 && (goal==='strength'||goal==='muscle')) r += 15;
   if(level===0 && f>=0.8) r -= 10;
-  if(age>=50) r += 15;
+  // Age: research is mixed (older lifters may recover faster between sets, yet hold reps better with longer rest), so no blanket change.
+  if(f<0.5) r = Math.min(r, 60); // core, calves, arms, rear delts recover quickly
   r *= REST_PREF[pref] || 1;
   const floor = goal==='mobility'?20:30;
   return {sec:Math.max(floor, Math.round(r/5)*5), why};
@@ -210,7 +214,7 @@ function buildPlan(p){
       if(!n) continue;
       const ex = EX.find(e=>e[0]===n && e[1]===pat) || EX.find(e=>e[0]===n);
       const sc = scheme(p.goal, lvl, COMPOUND.has(pat), p.age);
-      const rs = restSec(p.goal, n, pat, ex[2], lvl, p.age, p.rest);
+      const rs = restSec(p.goal, n, pat, ex[2], lvl, p.age, p.rest, p.sport);
       const t = sc.s*(40+rs.sec)/60 + 1;
       if(rows.length>=2 && used+t>budget){ ctx.used.delete(n); continue; }
       const isTime = ['Plank','Side plank','Dead bug'].includes(n);
@@ -235,7 +239,7 @@ function buildPlan(p){
 
   // Replace last day with a sport session
   if(sport.drills.length && p.days>=3){
-    days[days.length-1] = {name:`${sport.label} session`, kind:'sport', rows:[], drills:sport.drills.slice(0, p.minutes>=60?4:3), mobility:MOBILITY.slice(0,2), core:['Plank','Dead bug'], notes:[]};
+    days[days.length-1] = {name:`${sport.label} session`, kind:'sport', rows:[], drills:sport.drills.slice(0, p.minutes>=60?4:3), sportKey:p.sport, mobility:MOBILITY.slice(0,2), core:['Plank','Dead bug'], notes:[]};
   } else if(sport.drills.length){
     days[days.length-1].finisher = 'Sport finisher: ' + sport.drills[0];
   }
@@ -271,6 +275,11 @@ function stats(p){
 function bmiCat(b){ return b<18.5?'Underweight':b<25?'Healthy':b<30?'Overweight':'Obese'; }
 
 /* ---------- Render ---------- */
+function restGuide(key){
+  const r = REST_DEFS[key]; if(!r||!r.rules.length) return '';
+  return `<h4>Rest guide for ${SPORTS[key].label}</h4><ul class="rules">${r.rules.map(x=>`<li>${x}</li>`).join('')}</ul><p class="ev">Evidence: ${REST_EV[r.ev]}</p>`;
+}
+
 function renderResult(p, plan, st){
   const g = GOALS[p.goal], sp = SPORTS[p.sport];
   const notes = [];
@@ -300,6 +309,7 @@ function renderResult(p, plan, st){
     if(d.strengthRows){
       body += `<h4>Light strength</h4><table><tbody>${d.strengthRows.map(r=>`<tr><td class="n">${r.n}</td><td class="s">${r.sets} × ${r.reps}</td><td>${r.rest}</td></tr>`).join('')}</tbody></table>`;
     }
+    if(d.sportKey) body += restGuide(d.sportKey);
     if(d.drills) body += `<h4>Sport work</h4><table><tbody>${d.drills.map(x=>`<tr><td class="n">${x}</td></tr>`).join('')}</tbody></table>`;
     if(d.core) body += `<h4>Core</h4><p>${d.core.map(x=>x+' 3 × 30–45 s').join(' · ')}</p>`;
     if(d.cardio) body += `<h4>Cardio</h4><p>${d.cardio}</p>`;
@@ -321,8 +331,21 @@ function renderResult(p, plan, st){
       <div><b>${st.z2[0]}–${st.z2[1]}</b><span>easy cardio heart rate (bpm)</span></div>
     </div>
     ${notes.length?`<div class="notes"><b>Notes for you</b><ul>${notes.map(n=>`<li>${n}</li>`).join('')}</ul></div>`:''}
+    ${p.sport!=='gym'?`<div class="notes">${restGuide(p.sport)}</div>`:''}
     <div class="week">${week}</div>
     ${daysHtml}
+    <details class="notes"><summary><b>Research behind the rest times</b></summary>
+      <ul>
+        <li>Strength &amp; hypertrophy: rests over ~60 s help muscle growth slightly, with no clear extra benefit beyond ~90 s; heavy strength work does better with 3+ min — <a href="https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2024.1429789/pdf" target="_blank" rel="noopener">2024 meta-analysis</a>.</li>
+        <li>Powerlifting: 3–5 min beat 1 min for absolute strength; bench press is fine with 2–3 min.</li>
+        <li>Olympic lifts: 3 min kept maximal clean &amp; jerk technique and power better than 2 min — <a href="https://scholars.georgiasouthern.edu/en/publications/comparison-of-2-and-3-minute-inter-repetition-rest-periods-on-max/" target="_blank" rel="noopener">elite lifter study</a>.</li>
+        <li>Sprints / team sports: 60 s rest gave lower power than 90–120 s — <a href="https://doaj.org/article/7972c0cf49ca44a4b4a4c88502c4e74b" target="_blank" rel="noopener">2024 study</a>; 15 m sprints recover at ~1:10, longer sprints need more.</li>
+        <li>Tennis / badminton: match play is ~1:1–1:4 work:rest; training at 1:2–1:5 — <a href="https://pmc.ncbi.nlm.nih.gov/articles/2653872/" target="_blank" rel="noopener">BJSM review</a>.</li>
+        <li>Boxing 3:1 and MMA 5:1 round-to-rest ratios come from official rules (1-min break).</li>
+        <li>Older lifters: evidence is mixed (some recover faster, others hold reps better with longer rest), so no age penalty is applied — see <a href="https://ojs.srce.hr/kinesiology/article/view/5655" target="_blank" rel="noopener">Grgić &amp; Schoenfeld</a>.</li>
+        <li>Each sport's evidence level is shown on its rest guide. Many sports have no direct rest studies, so those use the closest related sport.</li>
+      </ul>
+    </details>
     <div class="notes">Keep the plan for 4–6 weeks, then rebuild it with your updated weight and experience. Stop an exercise if you feel sharp pain — swap it or ask a coach.</div>`;
   $('result').hidden = false;
   $('form').hidden = true;
