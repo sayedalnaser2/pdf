@@ -439,17 +439,17 @@ function renderProgram(prog){
         d.rows.map(r=>{
           const t = targets[r.n];
           const tg = t ? fmtTarget(t, imp, wk.deload, r) : (view===1 ? 'First week: choose a weight where you finish the reps with the left-in-tank cue above' : 'New exercise — find a weight that fits the rep range');
-          return `<tr><td class="n">${r.sp?'⭐ ':''}${r.n}<small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}<small class="tg">${tg}</small></td><td>${r.rest}<small>${r.why}</small></td></tr>${logRow(r)}`;
+          return `<tr><td class="n">${r.sp?'⭐ ':''}<button type="button" class="exl" data-demo="${r.n}">${r.n}</button><small>${r.tag}</small></td><td class="s">${r.sets} × ${r.reps}<small class="tg">${tg}</small></td><td>${r.rest}<small>${r.why}</small></td></tr>${logRow(r)}`;
         }).join('')
       }</tbody></table>`;
     }
     if(d.strengthRows){
-      body += `<h4>Light strength</h4><table><tbody>${d.strengthRows.map(r=>`<tr><td class="n">${r.n}</td><td class="s">${r.sets} × ${r.reps}</td><td>${r.rest}</td></tr>`).join('')}</tbody></table>`;
+      body += `<h4>Light strength</h4><table><tbody>${d.strengthRows.map(r=>`<tr><td class="n"><button type="button" class="exl" data-demo="${r.n}">${r.n}</button></td><td class="s">${r.sets} × ${r.reps}</td><td>${r.rest}</td></tr>`).join('')}</tbody></table>`;
     }
     if(d.sportKey) body += restGuide(d.sportKey);
     if(d.drills) body += `<h4>Sport work</h4><table><tbody>${d.drills.map(x=>`<tr><td class="n">${x}</td></tr>`).join('')}</tbody></table>`;
     if(d.progress) body += `<p class="tg">📈 ${d.progress}</p>`;
-    if(d.core) body += `<h4>Core</h4><p>${d.core.map(x=>x+' 3 × 30–45 s').join(' · ')}</p>`;
+    if(d.core) body += `<h4>Core</h4><p>${d.core.map(x=>`<button type="button" class="exl" data-demo="${x}">${x}</button> 3 × 30–45 s`).join(' · ')}</p>`;
     if(d.cardio) body += `<h4>Cardio</h4><p>${d.cardio}</p>`;
     if(d.finisher) body += `<h4>Finisher</h4><p>${d.finisher}</p>`;
     body += `<h4>${d.kind==='mobility'?'Mobility flow':'Cool-down · 5 min'}</h4><p>${d.mobility.length?d.mobility.join(' · '):'Easy walking and static stretches for the muscles you trained, 30 s each.'}</p>`;
@@ -509,6 +509,12 @@ function renderProgram(prog){
     ent[el.dataset.f] = el.dataset.f==='fb' ? el.value : (el.value===''?undefined:+el.value);
     if(row.range){ ent.lo=row.range[0]; ent.hi=row.range[1]; } ent.time = !!row.time; ent.unit = row.unit;
     saveProg(prog);
+  };
+  const rowMap = {}; plan.forEach(d=>d.rows.concat(d.strengthRows||[]).forEach(r=>{ rowMap[r.n]=r; }));
+  $('result').onclick = e=>{
+    const b = e.target.closest && e.target.closest('.exl'); if(!b) return;
+    const name = b.dataset.demo, r = rowMap[name], t = targets[name];
+    showDemo(name, r ? {tag:r.tag, sets:r.sets, reps:r.reps, rest:r.rest, target: t ? fmtTarget(t, imp, wk.deload, r) : ''} : null);
   };
   const cb = $('complete');
   if(cb) cb.onclick = ()=>{

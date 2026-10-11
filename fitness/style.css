@@ -73,3 +73,33 @@ footer{max-width:900px;margin:0 auto;padding:16px 16px 40px;color:var(--mute);fo
 .logrow input,.logrow select{padding:6px;width:110px;font-size:14px}
 .flash{border-left:5px solid var(--ok)}
 @media print{.logrow,.wks,#complete,#next{display:none}}
+/* exercise demo modal */
+.exl{background:none;border:0;padding:0;font:inherit;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;text-decoration:underline dotted var(--accent);text-underline-offset:3px}
+.exl:hover,.exl:focus-visible{color:var(--accent)}
+.exl::after{content:" ▶";font-size:10px;color:var(--accent)}
+#demo{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:12px}
+#demo[hidden]{display:none}
+body.demo-open{overflow:hidden}
+.demo-box{background:var(--card);color:var(--ink);border-radius:16px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px 18px 22px;position:relative}
+.demo-box h3{margin:0 36px 2px 0;font-size:20px}
+.demo-sub{color:var(--mute);font-size:13px;margin-bottom:8px}
+.demo-x{position:absolute;top:10px;right:10px;border-radius:50%;width:34px;height:34px;padding:0}
+.demo-fig{background:var(--bg);border-radius:12px;border:1px solid var(--line);padding:4px}
+.demo-fig svg{display:block;width:100%;height:auto;max-height:260px}
+.demo-fig .gnd{stroke:var(--line);stroke-width:2}
+.demo-fig .rig{stroke:var(--mute);stroke-width:3;stroke-linecap:round}
+.demo-fig .bch{fill:var(--line)}
+.demo-fig .bod,.demo-fig .lim{stroke:var(--ink);stroke-width:6;stroke-linecap:round;fill:none}
+.demo-fig .hd{fill:var(--card);stroke:var(--ink);stroke-width:3}
+.demo-fig .jt{fill:var(--accent)}
+.demo-fig .eqp{fill:var(--accent);stroke:var(--ink);stroke-width:2;opacity:.9}
+.demo-fig .band{stroke:var(--ok);stroke-width:2.5;stroke-dasharray:5 3}
+.demo-ctl{display:flex;gap:8px;margin:8px 0}
+.demo-ctl button{padding:6px 12px;font-size:14px}
+.demo-box h4{margin:14px 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.demo-box ol,.demo-box ul{margin:0;padding-left:22px}
+.demo-box li{margin:3px 0}
+.demo-rx{background:var(--accent2);border-radius:10px;padding:8px 12px;font-size:14px;margin:6px 0}
+.demo-cue,.demo-br{margin:10px 0 0}
+.demo-note{font-size:12px;color:var(--mute);margin-top:12px}
+@media print{#demo{display:none}.exl::after{content:""}}
