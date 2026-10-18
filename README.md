@@ -19,3 +19,8 @@ Watermark, Page numbers, Header & footer, Fill forms, Extract text, Redact (true
 
 Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.js from a CDN on first use.
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).
+
+## Install as an app
+Served over HTTPS (e.g. GitHub Pages), PrivatePDF is an installable PWA: click **Install app** in the header
+(or the install icon in Chrome/Edge, or Share → Add to Home Screen on iPhone). It then opens in its own window,
+works fully offline (all code is precached), and can be chosen in "Open with…" for `.pdf` files (Chrome/Edge desktop).

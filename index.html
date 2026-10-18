@@ -6,12 +6,18 @@
 <title>PrivatePDF – Free PDF tools that never upload your files</title>
 <meta name="description" content="Edit, merge, split, compress, redact, OCR and convert PDFs entirely in your browser. No uploads, no limits, no ads, no sign-up.">
 <link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4f46e5">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PrivatePDF">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#" id="brand">📄 <b>Private</b>PDF</a>
-  <div class="badges"><span class="badge" id="filecount" style="color:var(--mute);background:var(--bg)">📂 0 files added this session</span> <span class="badge" title="Files are processed by your browser. Nothing is sent to any server.">🔒 100% on your device</span></div>
+  <div class="badges"><span class="badge" id="filecount" style="color:var(--mute);background:var(--bg)">📂 0 files added this session</span> <button class="badge" id="install" hidden title="Install PrivatePDF as an app">⬇ Install app</button><span class="badge" id="offline" hidden>📴 Offline</span><span class="badge" title="Files are processed by your browser. Nothing is sent to any server.">🔒 100% on your device</span></div>
 </header>
 <main id="app"></main>
 <footer>
