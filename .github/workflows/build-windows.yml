@@ -1,0 +1,20 @@
+name: Build Windows app
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      # On Windows the exe gets the PrivatePDF icon and the installer target works.
+      - run: npx electron-builder --win portable nsis --x64 -c.win.signAndEditExecutable=true -c.win.target=portable -c.win.target=nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrivatePDF-windows
+          path: |
+            dist/PrivatePDF-*.exe

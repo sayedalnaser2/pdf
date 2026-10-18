@@ -1,25 +1,86 @@
 {
-  "name": "pdf",
+  "name": "privatepdf",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Private, offline PDF toolkit. Every tool runs on your device.",
+  "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64",
+    "dist:linux": "electron-builder --linux dir"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sayedalnaser2/pdf.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "PrivatePDF",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/sayedalnaser2/pdf/issues"
   },
   "homepage": "https://github.com/sayedalnaser2/pdf#readme",
-  "dependencies": {
+  "devDependencies": {
+    "@tesseract.js-data/deu": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/fra": "^1.0.0",
+    "@tesseract.js-data/ita": "^1.0.0",
+    "@tesseract.js-data/nld": "^1.0.0",
+    "@tesseract.js-data/por": "^1.0.0",
+    "@tesseract.js-data/spa": "^1.0.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "tesseract.js": "^5.1.1",
+    "tesseract.js-core": "^5.1.1",
     "jszip": "^3.10.2",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38"
+  },
+  "productName": "PrivatePDF",
+  "build": {
+    "appId": "app.privatepdf.desktop",
+    "productName": "PrivatePDF",
+    "copyright": "PrivatePDF",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "app.js",
+      "style.css",
+      "manifest.json",
+      "icons/**",
+      "vendor/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false,
+      "fileAssociations": [
+        {
+          "ext": "pdf",
+          "name": "PDF Document",
+          "role": "Editor"
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "PrivatePDF-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "PrivatePDF-Setup-${version}.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
   }
 }

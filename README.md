@@ -24,3 +24,10 @@ Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin 
 Served over HTTPS (e.g. GitHub Pages), PrivatePDF is an installable PWA: click **Install app** in the header
 (or the install icon in Chrome/Edge, or Share → Add to Home Screen on iPhone). It then opens in its own window,
 works fully offline (all code is precached), and can be chosen in "Open with…" for `.pdf` files (Chrome/Edge desktop).
+
+## Desktop app (.exe)
+`npm ci && npm run dist:win` builds `dist/PrivatePDF-<version>-portable.exe` — a single self-contained Windows file
+(Electron + all libraries + OCR engine and languages). No install, no internet, no Node/Python needed.
+Run it with a PDF path (or "Open with") and the PDF opens in the editor. `npm start` runs it from source.
+The *Build Windows app* GitHub Action also produces an installer and applies the app icon (needs a Windows runner).
+Unsigned builds trigger a Windows SmartScreen prompt: choose **More info → Run anyway**.

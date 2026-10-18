@@ -383,11 +383,11 @@ add({
     single(root, 'Choose a scanned PDF', async f => {
       const bytes = await readBytes(f); const p = panel(); root.innerHTML = ''; root.append(p);
       p.innerHTML = `<b>${esc(f.name)}</b><div class="row"><label class="f">Language<select id="l"><option value="eng">English</option><option value="spa">Spanish</option><option value="fra">French</option><option value="deu">German</option><option value="ita">Italian</option><option value="por">Portuguese</option><option value="nld">Dutch</option></select></label></div>
-        <p class="note">The OCR engine and language data (~10 MB) are downloaded once from a CDN and cached; your document itself never leaves your device. Output text layer supports Latin characters.</p>
+        <p class="note">The OCR engine and language data are bundled with the app, so OCR works offline and your document never leaves your device. Output text layer supports Latin characters.</p>
         <button class="primary" id="go">Run OCR</button>`;
       $('#go', p).onclick = () => run('Loading OCR engine…', async () => {
-        await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
-        const worker = await Tesseract.createWorker($('#l', p).value, 1, { logger: m => { if (m.status === 'recognizing text') busy(`OCR page ${cur}/${doc.numPages}…`, (cur - 1 + m.progress) / doc.numPages); else busy('Loading language data…', m.progress || 0); } });
+        await loadScript('vendor/ocr/tesseract.min.js');
+        const worker = await Tesseract.createWorker($('#l', p).value, 1, { workerPath: new URL('vendor/ocr/worker.min.js', location.href).href, corePath: new URL('vendor/ocr/core/', location.href).href, langPath: new URL('vendor/ocr/lang/', location.href).href, logger: m => { if (m.status === 'recognizing text') busy(`OCR page ${cur}/${doc.numPages}…`, (cur - 1 + m.progress) / doc.numPages); else busy('Loading language data…', m.progress || 0); } });
         const doc = await openJs(bytes), out = await PDFDocument.create(), font = await out.embedFont(StandardFonts.Helvetica), S = 2; let cur = 1, all = '';
         for (; cur <= doc.numPages; cur++) {
           const pg = await doc.getPage(cur), vp = pg.getViewport({ scale: 1 }), c = await renderCanvas(pg, S);
@@ -409,7 +409,7 @@ add({
 });
 const loadLib_ = {};
 function loadScript(src) {
-  return loadLib_[src] ||= new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load OCR engine (are you offline?)')); document.head.append(s); });
+  return loadLib_[src] ||= new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load the OCR engine')); document.head.append(s); });
 }
 
 add({
@@ -742,8 +742,7 @@ addEventListener('appinstalled', () => { $('#install').hidden = true; toast('Pri
 const syncOnline = () => { $('#offline').hidden = navigator.onLine; };
 addEventListener('online', syncOnline); addEventListener('offline', syncOnline); syncOnline();
 // Opening a .pdf with the installed app (right-click > Open with) sends it straight to the editor.
-if ('launchQueue' in window) launchQueue.setConsumer(async p => {
-  if (!p.files.length) return;
-  const f = await p.files[0].getFile(); location.hash = '#edit';
-  await new Promise(r => setTimeout(r, 50)); editor($('#tool'), f, 'edit'); bump(1);
-});
+async function openInEditor(f) { location.hash = '#edit'; await new Promise(r => setTimeout(r, 50)); editor($('#tool'), f, 'edit'); bump(1); }
+if ('launchQueue' in window) launchQueue.setConsumer(async p => { if (p.files.length) openInEditor(await p.files[0].getFile()); });
+// Desktop (Electron) app: a PDF passed on the command line / "Open with" arrives here.
+if (window.desktop) window.desktop.onOpenFile(({ name, data }) => openInEditor(new File([data], name, { type: 'application/pdf' })));
