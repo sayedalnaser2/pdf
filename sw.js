@@ -1,7 +1,7 @@
 // Precache the whole app so it works offline from the very first visit.
-const VERSION = 'ppdf-v2';
+const VERSION = 'ppdf-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.json',
-  'vendor/pdf-lib.min.js', 'vendor/jszip.min.js', 'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs',
+  'vendor/pdf-lib.min.js', 'vendor/jszip.min.js', 'vendor/fontkit.umd.min.js', 'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(

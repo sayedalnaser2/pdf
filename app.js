@@ -382,20 +382,22 @@ add({
   mount(root) {
     single(root, 'Choose a scanned PDF', async f => {
       const bytes = await readBytes(f); const p = panel(); root.innerHTML = ''; root.append(p);
-      p.innerHTML = `<b>${esc(f.name)}</b><div class="row"><label class="f">Language<select id="l"><option value="eng">English</option><option value="spa">Spanish</option><option value="fra">French</option><option value="deu">German</option><option value="ita">Italian</option><option value="por">Portuguese</option><option value="nld">Dutch</option></select></label></div>
-        <p class="note">The OCR engine and language data are bundled with the app, so OCR works offline and your document never leaves your device. Output text layer supports Latin characters.</p>
+      p.innerHTML = `<b>${esc(f.name)}</b><div class="row"><label class="f">Language<select id="l"><option value="eng">English</option><option value="ara">Arabic (العربية)</option><option value="ara+eng">Arabic + English</option><option value="spa">Spanish</option><option value="fra">French</option><option value="deu">German</option><option value="ita">Italian</option><option value="por">Portuguese</option><option value="nld">Dutch</option></select></label></div>
+        <p class="note">The OCR engine and language data are bundled with the app, so OCR works offline and your document never leaves your device. The invisible text layer supports Latin and Arabic.</p>
         <button class="primary" id="go">Run OCR</button>`;
       $('#go', p).onclick = () => run('Loading OCR engine…', async () => {
         await loadScript('vendor/ocr/tesseract.min.js');
         const worker = await Tesseract.createWorker($('#l', p).value, 1, { workerPath: new URL('vendor/ocr/worker.min.js', location.href).href, corePath: new URL('vendor/ocr/core/', location.href).href, langPath: new URL('vendor/ocr/lang/', location.href).href, logger: m => { if (m.status === 'recognizing text') busy(`OCR page ${cur}/${doc.numPages}…`, (cur - 1 + m.progress) / doc.numPages); else busy('Loading language data…', m.progress || 0); } });
         const doc = await openJs(bytes), out = await PDFDocument.create(), font = await out.embedFont(StandardFonts.Helvetica), S = 2; let cur = 1, all = '';
+        let arFont = null; const AR = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+        if ($('#l', p).value.includes('ara')) { out.registerFontkit(fontkit); arFont = await out.embedFont(await (await fetch('vendor/ocr/NotoNaskhArabic.woff')).arrayBuffer(), { subset: true }); }
         for (; cur <= doc.numPages; cur++) {
           const pg = await doc.getPage(cur), vp = pg.getViewport({ scale: 1 }), c = await renderCanvas(pg, S);
           const { data } = await worker.recognize(c), img = await out.embedJpg(await (await canvasBlob(c, 'image/jpeg', .85)).arrayBuffer());
           const np = out.addPage([vp.width, vp.height]); np.drawImage(img, { x: 0, y: 0, width: vp.width, height: vp.height });
           for (const w of data.words || []) {
-            const t = safe(w.text); if (!t.trim()) continue; const h = (w.bbox.y1 - w.bbox.y0) / S;
-            try { np.drawText(t, { x: w.bbox.x0 / S, y: vp.height - w.bbox.y1 / S + h * .2, size: Math.max(h * .85, 4), font, opacity: 0 }); } catch { }
+            const ar = arFont && AR.test(w.text), t = ar ? w.text.trim() : safe(w.text); if (!t.trim()) continue; const h = (w.bbox.y1 - w.bbox.y0) / S;
+            try { np.drawText(t, { x: w.bbox.x0 / S, y: vp.height - w.bbox.y1 / S + h * .2, size: Math.max(h * .85, 4), font: ar ? arFont : font, opacity: 0 }); } catch { }
           }
           all += `--- Page ${cur} ---\n${data.text}\n`;
         }
