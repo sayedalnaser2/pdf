@@ -21,8 +21,8 @@ Libraries (vendored in `vendor/`): pdf-lib, pdf.js, JSZip. OCR loads tesseract.j
 Limits: no PDF encryption/password-adding; text edits use standard fonts (Latin characters).
 
 ## Install as an app
-Served over HTTPS (e.g. GitHub Pages), PrivatePDF is an installable PWA: click **Install app** in the header
-(or the install icon in Chrome/Edge, or Share → Add to Home Screen on iPhone). It then opens in its own window,
+Served over HTTPS (e.g. GitHub Pages), PrivatePDF is an installable PWA: use the install icon in the Chrome/Edge address bar
+(or Share → Add to Home Screen on iPhone). It then opens in its own window,
 works fully offline (all code is precached), and can be chosen in "Open with…" for `.pdf` files (Chrome/Edge desktop).
 
 ## Desktop app (.exe)

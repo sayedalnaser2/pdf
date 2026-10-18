@@ -73,6 +73,5 @@ label.f{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--mu
 #toasts{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px}
 .toast{background:#222;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px}.toast.err{background:var(--bad)}
 .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-button.badge{border:0;cursor:pointer;color:#fff;background:var(--pri2);font-weight:600}
 #offline{color:var(--mute);background:var(--bg)}
 @media (display-mode:standalone){footer{display:none}.top{padding-top:max(12px,env(safe-area-inset-top))}}

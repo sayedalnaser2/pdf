@@ -1,6 +1,6 @@
 {
   "name": "privatepdf",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Private, offline PDF toolkit. Every tool runs on your device.",
   "main": "main.js",
   "scripts": {

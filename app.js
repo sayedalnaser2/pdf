@@ -737,10 +737,6 @@ addEventListener('hashchange', route); route();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
 
 /* ---------- app (PWA) behaviour ---------- */
-let installEvt = null;
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('#install').hidden = false; });
-$('#install').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; $('#install').hidden = true; };
-addEventListener('appinstalled', () => { $('#install').hidden = true; toast('PrivatePDF installed'); });
 const syncOnline = () => { $('#offline').hidden = navigator.onLine; };
 addEventListener('online', syncOnline); addEventListener('offline', syncOnline); syncOnline();
 // Opening a .pdf with the installed app (right-click > Open with) sends it straight to the editor.
