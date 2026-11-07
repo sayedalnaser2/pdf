@@ -2,15 +2,16 @@
 """imggen - control a local AI image generator from Python or the command line.
 
 Supports (auto-detected):
-  * AUTOMATIC1111 / Forge / SD.Next   start it with the --api flag   (default http://127.0.0.1:7860)
-  * ComfyUI                                                        (default http://127.0.0.1:8188)
+  * FastSD CPU                        start it with: python src/app.py --api   (default http://127.0.0.1:8000)
+  * AUTOMATIC1111 / Forge / SD.Next   start it with the --api flag             (default http://127.0.0.1:7860)
+  * ComfyUI                                                                    (default http://127.0.0.1:8188)
 
 Only the Python standard library is used, so there is nothing to install.
 
 Command line
     python imggen.py ping
     python imggen.py models
-    python imggen.py gen "a red fox in the snow, golden hour" --steps 30 --count 4
+    python imggen.py gen "a red fox in the snow, golden hour" --steps 4 --count 4
     python imggen.py gen "portrait, studio light" -n "blurry, low quality" -W 768 -H 1024 --model dreamshaper
     python imggen.py gen "make it a watercolor" --init-image photo.png --strength 0.55
 
@@ -36,11 +37,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import asdict, dataclass
+import warnings
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, List, Optional
 
-DEFAULT_URLS = {"a1111": "http://127.0.0.1:7860", "comfyui": "http://127.0.0.1:8188"}
+DEFAULT_URLS = {"fastsd": "http://127.0.0.1:8000", "a1111": "http://127.0.0.1:7860", "comfyui": "http://127.0.0.1:8188"}
 # Never route local traffic through an HTTP proxy.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -53,10 +55,10 @@ class GeneratorError(RuntimeError):
 class Params:
     prompt: str
     negative: str = ""
-    width: int = 512
-    height: int = 512
-    steps: int = 25
-    cfg: float = 7.0
+    width: Optional[int] = None         # width/height/steps/cfg: None = the generator's usual default
+    height: Optional[int] = None
+    steps: Optional[int] = None
+    cfg: Optional[float] = None
     seed: int = -1                      # -1 = random
     sampler: Optional[str] = None       # backend default if None
     scheduler: Optional[str] = None     # ComfyUI only
@@ -64,6 +66,9 @@ class Params:
     model: Optional[str] = None         # checkpoint name (substring match is fine)
     init_image: Optional[str] = None    # path -> image-to-image
     strength: float = 0.6               # img2img denoising strength
+    openvino: bool = False              # FastSD CPU only: use the OpenVINO models (often faster on Intel CPUs)
+    tiny_vae: bool = False              # FastSD CPU only: tiny auto-encoder (faster, slightly less detail)
+    extra: Optional[dict] = None        # FastSD CPU only: any other /api/generate field, e.g. {"clip_skip": 2}
 
 
 @dataclass
@@ -102,6 +107,11 @@ def _pick(options: List[str], wanted: str, what: str) -> str:
     raise GeneratorError(f"'{wanted}' matches several {what}s: {', '.join(hits)}")
 
 
+def resolve(p: Params, defaults: dict) -> Params:
+    """Fill every None setting with the backend's default."""
+    return replace(p, **{k: v for k, v in defaults.items() if getattr(p, k) is None})
+
+
 def _round8(v: int) -> int:
     return max(64, int(v / 8 + 0.5) * 8)   # nearest multiple of 8, halves round up
 
@@ -109,6 +119,10 @@ def _round8(v: int) -> int:
 # --------------------------------------------------------------------------- AUTOMATIC1111 / Forge
 class A1111:
     name = "a1111"
+    defaults = {"width": 512, "height": 512, "steps": 25, "cfg": 7.0}
+
+    def resolve(self, p: Params) -> Params:
+        return resolve(p, self.defaults)
 
     def __init__(self, url: str = DEFAULT_URLS["a1111"]):
         self.url = url.rstrip("/")
@@ -131,6 +145,7 @@ class A1111:
         return title
 
     def generate(self, p: Params, on_progress: Optional[Callable[[float, float], None]] = None) -> List[Result]:
+        p = resolve(p, self.defaults)
         if p.model:
             self.set_model(p.model)
         payload = {
@@ -173,6 +188,10 @@ class A1111:
 # --------------------------------------------------------------------------- ComfyUI
 class ComfyUI:
     name = "comfyui"
+    defaults = {"width": 512, "height": 512, "steps": 25, "cfg": 7.0}
+
+    def resolve(self, p: Params) -> Params:
+        return resolve(p, self.defaults)
 
     def __init__(self, url: str = DEFAULT_URLS["comfyui"]):
         self.url = url.rstrip("/")
@@ -222,6 +241,7 @@ class ComfyUI:
         return g
 
     def generate(self, p: Params, on_progress: Optional[Callable[[float, float], None]] = None) -> List[Result]:
+        p = resolve(p, self.defaults)
         ckpt = _pick(self.models(), p.model, "model") if p.model else self.models()[0]
         uploaded = self._upload(p.init_image) if p.init_image else None
         base = random.randint(0, 2**32 - 1) if p.seed < 0 else p.seed
@@ -253,19 +273,90 @@ class ComfyUI:
         raise GeneratorError("Timed out waiting for ComfyUI.")
 
 
+# --------------------------------------------------------------------------- FastSD CPU
+class FastSD:
+    """FastSD CPU's web API (python src/app.py --api). It makes JPEG images and uses very few steps (1-4)."""
+    name = "fastsd"
+    defaults = {"width": 512, "height": 512, "steps": 1, "cfg": 1.0}
+
+    def resolve(self, p: Params) -> Params:
+        return resolve(p, self.defaults)
+    LCM_LORA = "latent-consistency/lcm-lora-sdv1-5"
+
+    def __init__(self, url: str = DEFAULT_URLS["fastsd"]):
+        self.url = url.rstrip("/")
+
+    def _get(self, path, timeout=30):
+        return json.loads(_http(self.url + path, timeout=timeout))
+
+    def ping(self):
+        msg = str(self._get("/api/").get("message", ""))
+        if "FastSD" not in msg:
+            raise GeneratorError(f"{self.url} is not a FastSD CPU server")
+
+    def _catalog(self) -> dict:
+        return self._get("/api/models")
+
+    def models(self) -> List[str]:
+        c = self._catalog()
+        return list(dict.fromkeys(c.get("lcm_models", []) + c.get("openvino_models", []) + c.get("stable_diffusion", [])))
+
+    def describe_models(self) -> str:
+        c = self._catalog()
+        names = {"lcm_models": "Models (use --model)", "openvino_models": "OpenVINO models (use --openvino --model)",
+                 "stable_diffusion": "Stable Diffusion + LCM-LoRA (use --model)"}
+        return "\n\n".join(f"{title}:\n  " + "\n  ".join(c.get(k, [])) for k, title in names.items() if c.get(k))
+
+    def samplers(self) -> List[str]:
+        raise GeneratorError("FastSD CPU has no sampler setting.")
+
+    def generate(self, p: Params, on_progress: Optional[Callable[[float, float], None]] = None) -> List[Result]:
+        p = resolve(p, self.defaults)
+        if p.negative and p.cfg <= 1:
+            warnings.warn("FastSD CPU ignores the negative prompt unless --cfg is above 1.")
+        payload = {
+            "prompt": p.prompt, "negative_prompt": p.negative, "image_width": _round8(p.width), "image_height": _round8(p.height),
+            "inference_steps": p.steps, "guidance_scale": p.cfg, "number_of_images": p.count,
+            "use_seed": p.seed >= 0, "seed": p.seed if p.seed >= 0 else 123123,
+            "use_openvino": p.openvino, "use_tiny_auto_encoder": p.tiny_vae, "diffusion_task": "text_to_image",
+        }
+        if p.model:
+            c = self._catalog()
+            if p.openvino:
+                payload["openvino_lcm_model_id"] = _pick(c.get("openvino_models", []), p.model, "OpenVINO model")
+            elif any(p.model.lower() in m.lower() for m in c.get("lcm_models", [])):
+                payload["lcm_model_id"] = _pick(c.get("lcm_models", []), p.model, "model")
+            else:           # a plain Stable Diffusion checkpoint is run through an LCM-LoRA
+                payload["use_lcm_lora"] = True
+                payload["lcm_lora"] = {"base_model_id": _pick(c.get("stable_diffusion", []) + c.get("lcm_models", []), p.model, "model"),
+                                       "lcm_lora_id": self.LCM_LORA}
+        if p.init_image:
+            payload["diffusion_task"] = "image_to_image"
+            payload["init_image"] = base64.b64encode(Path(p.init_image).read_bytes()).decode()
+            payload["strength"] = p.strength
+        payload.update(p.extra or {})
+        # The first run (or a model change) downloads/loads the model, which can take several minutes on a CPU.
+        resp = json.loads(_http(self.url + "/api/generate", payload, timeout=3600))
+        if resp.get("error") and not resp.get("images"):
+            raise GeneratorError(f"FastSD CPU: {resp['error']}")
+        return [Result(base64.b64decode(b.split(",", 1)[-1]), p.seed) for b in resp.get("images", [])]
+
+
 # --------------------------------------------------------------------------- connecting / saving
 def connect(backend: str = "auto", url: Optional[str] = None):
-    """Return a ready client. backend: 'a1111', 'comfyui' or 'auto'."""
-    classes = {"a1111": A1111, "comfyui": ComfyUI}
+    """Return a ready client. backend: 'fastsd', 'a1111', 'comfyui' or 'auto'."""
+    classes = {"fastsd": FastSD, "a1111": A1111, "comfyui": ComfyUI}
     if backend != "auto":
         c = classes[backend](url or DEFAULT_URLS[backend])
         c.ping()
         return c
-    if url:      # guess from the port first, then try both
-        order = ["comfyui", "a1111"] if urllib.parse.urlparse(url).port == 8188 else ["a1111", "comfyui"]
+    if url:      # guess from the port first, then try them all
+        port = urllib.parse.urlparse(url).port
+        first = {8000: "fastsd", 7860: "a1111", 8188: "comfyui"}.get(port)
+        order = ([first] if first else []) + [n for n in ("fastsd", "a1111", "comfyui") if n != first]
         tries = [(n, url) for n in order]
     else:
-        tries = [(n, DEFAULT_URLS[n]) for n in ("a1111", "comfyui")]
+        tries = [(n, DEFAULT_URLS[n]) for n in ("fastsd", "a1111", "comfyui")]
     for name, u in tries:
         try:
             c = classes[name](u)
@@ -273,7 +364,7 @@ def connect(backend: str = "auto", url: Optional[str] = None):
             return c
         except GeneratorError:
             continue
-    raise GeneratorError("No generator found. Start AUTOMATIC1111/Forge (with --api) or ComfyUI, or pass --url/--backend. "
+    raise GeneratorError("No generator found. Start FastSD CPU (python src/app.py --api), AUTOMATIC1111/Forge (with --api) or ComfyUI, or pass --url/--backend. "
                          "Tried: " + ", ".join(u for _, u in tries))
 
 
@@ -283,7 +374,8 @@ def save_results(results: List[Result], p: Params, outdir: str = "outputs", meta
     stamp = time.strftime("%Y%m%d-%H%M%S")
     paths = []
     for i, r in enumerate(results, 1):
-        path = out / f"{stamp}_{r.seed}_{i}.png"
+        ext = ".jpg" if r.image[:2] == b"\xff\xd8" else ".png"      # FastSD CPU returns JPEG
+        path = out / f"{stamp}_{r.seed if r.seed >= 0 else 'rand'}_{i}{ext}"
         path.write_bytes(r.image)
         if meta:
             path.with_suffix(".json").write_text(json.dumps({**asdict(p), "seed": r.seed}, indent=2))
@@ -325,7 +417,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             break
 
     ap = argparse.ArgumentParser(description="Control a local AI image generator (AUTOMATIC1111/Forge or ComfyUI).")
-    ap.add_argument("--backend", choices=["auto", "a1111", "comfyui"], default=os.environ.get("IMGGEN_BACKEND", "auto"))
+    ap.add_argument("--backend", choices=["auto", "fastsd", "a1111", "comfyui"], default=os.environ.get("IMGGEN_BACKEND", "auto"))
     ap.add_argument("--url", default=os.environ.get("IMGGEN_URL"), help="server address, e.g. http://127.0.0.1:7860")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("ping", help="check the generator is reachable")
@@ -334,10 +426,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     g = sub.add_parser("gen", help="generate images")
     g.add_argument("prompt")
     g.add_argument("-n", "--negative", default="")
-    g.add_argument("-W", "--width", type=int, default=512)
-    g.add_argument("-H", "--height", type=int, default=512)
-    g.add_argument("--steps", type=int, default=25)
-    g.add_argument("--cfg", type=float, default=7.0)
+    g.add_argument("-W", "--width", type=int, help="default 512")
+    g.add_argument("-H", "--height", type=int, help="default 512")
+    g.add_argument("--steps", type=int, help="default: 1 on FastSD CPU, 25 elsewhere")
+    g.add_argument("--cfg", type=float, help="guidance scale. default: 1 on FastSD CPU, 7 elsewhere")
     g.add_argument("--seed", type=int, default=-1, help="-1 = random")
     g.add_argument("--sampler")
     g.add_argument("--scheduler", help="ComfyUI only, e.g. normal, karras")
@@ -345,6 +437,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     g.add_argument("--model", help="checkpoint name (part of the name is enough)")
     g.add_argument("--init-image", help="start from this image (image-to-image)")
     g.add_argument("--strength", type=float, default=0.6, help="img2img strength 0-1 (higher = change more)")
+    g.add_argument("--openvino", action="store_true", help="FastSD CPU: use OpenVINO models (faster on Intel CPUs)")
+    g.add_argument("--tiny-vae", action="store_true", help="FastSD CPU: tiny auto-encoder (faster)")
+    g.add_argument("--extra", action="append", default=[], metavar="KEY=VALUE",
+                   help="FastSD CPU: any other /api/generate field, e.g. --extra clip_skip=2 (repeatable)")
     g.add_argument("-o", "--out", default="outputs", help="output folder")
     g.add_argument("--no-meta", action="store_true", help="don't write the .json settings file next to each image")
     g.add_argument("--open", action="store_true", help="open the first image when done")
@@ -356,7 +452,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if a.cmd == "ping":
             print("OK")
         elif a.cmd == "models":
-            print("\n".join(gen.models()))
+            print(gen.describe_models() if hasattr(gen, "describe_models") else "\n".join(gen.models()))
         elif a.cmd == "samplers":
             print("\n".join(gen.samplers()))
         else:
@@ -364,8 +460,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise GeneratorError(f"Init image not found: {a.init_image}")
             if a.count < 1:
                 raise GeneratorError("--count must be at least 1")
+            extra = {}
+            for item in a.extra:
+                key, _, val = item.partition("=")
+                if not key or not _:
+                    raise GeneratorError(f"--extra needs KEY=VALUE, got '{item}'")
+                try:
+                    extra[key] = json.loads(val)
+                except ValueError:
+                    extra[key] = val
             p = Params(a.prompt, a.negative, a.width, a.height, a.steps, a.cfg, a.seed, a.sampler, a.scheduler,
-                       a.count, a.model, a.init_image, a.strength)
+                       a.count, a.model, a.init_image, a.strength, a.openvino, a.tiny_vae, extra or None)
+            p = resolve(p, gen.defaults)               # so the .json file records the real settings used
             t0 = time.time()
             results = gen.generate(p, _progress_printer() if sys.stderr.isatty() else None)
             if sys.stderr.isatty():
