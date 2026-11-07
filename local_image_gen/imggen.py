@@ -25,12 +25,15 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
+import math
 import mimetypes
 import os
 import random
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -69,6 +72,9 @@ class Params:
     openvino: bool = False              # FastSD CPU only: use the OpenVINO models (often faster on Intel CPUs)
     tiny_vae: bool = False              # FastSD CPU only: tiny auto-encoder (faster, slightly less detail)
     extra: Optional[dict] = None        # FastSD CPU only: any other /api/generate field, e.g. {"clip_skip": 2}
+    refine: bool = False                # second pass over the result that adds detail (image-to-image)
+    upscale: Optional[float] = None     # e.g. 1.5 = enlarge before refining (needs Pillow: pip install pillow)
+    refine_strength: float = 0.4        # how much the refine pass may change the image (0.2-0.5 is typical)
 
 
 @dataclass
@@ -277,7 +283,7 @@ class ComfyUI:
 class FastSD:
     """FastSD CPU's web API (python src/app.py --api). It makes JPEG images and uses very few steps (1-4)."""
     name = "fastsd"
-    defaults = {"width": 512, "height": 512, "steps": 1, "cfg": 1.0}
+    defaults = {"width": 512, "height": 512, "steps": 4, "cfg": 1.5}   # same as the FastSD CPU web page
 
     def resolve(self, p: Params) -> Params:
         return resolve(p, self.defaults)
@@ -342,6 +348,84 @@ class FastSD:
         return [Result(base64.b64decode(b.split(",", 1)[-1]), p.seed) for b in resp.get("images", [])]
 
 
+# --------------------------------------------------------------------------- quality: presets, refine, upscale
+PRESETS = {
+    # FastSD CPU's models are built for very few steps, the others want many.
+    "fastsd":  {"draft": {"steps": 2, "tiny_vae": True}, "good": {"steps": 4},
+                "high": {"steps": 4, "refine": True}, "best": {"steps": 4, "refine": True, "upscale": 1.5}},
+    "default": {"draft": {"steps": 12}, "good": {"steps": 25},
+                "high": {"steps": 30, "refine": True}, "best": {"steps": 35, "refine": True, "upscale": 1.5}},
+}
+
+
+def apply_preset(p: Params, backend: str, preset: str) -> Params:
+    """Fill settings from a quality preset. Anything you set yourself wins."""
+    if preset not in PRESETS["default"]:
+        raise GeneratorError(f"Unknown quality '{preset}'. Choose: {', '.join(PRESETS['default'])}")
+    vals = PRESETS.get(backend, PRESETS["default"])[preset]
+    return replace(p, **{k: v for k, v in vals.items() if getattr(p, k) in (None, False)})
+
+
+def image_size(data: bytes):
+    """(width, height) of a PNG or JPEG without any library."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            m = data[i + 1]
+            if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+                return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+            i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    raise GeneratorError("Could not read the image size.")
+
+
+def _upscale(data: bytes, factor: float):
+    try:
+        from PIL import Image
+    except ImportError:
+        raise GeneratorError("--upscale needs Pillow. Install it with: pip install pillow") from None
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    size = (_round8(im.width * factor), _round8(im.height * factor))
+    out = io.BytesIO()
+    im.resize(size, Image.LANCZOS).save(out, "PNG")
+    return out.getvalue(), size
+
+
+def produce(gen, p: Params, on_progress=None, log: Optional[Callable[[str], None]] = None) -> List[Result]:
+    """Generate, then (if asked) upscale and/or refine each image. Use this instead of gen.generate() for best quality."""
+    say = log or (lambda m: None)
+    p = gen.resolve(p)
+    say("Pass 1: generating")
+    results = gen.generate(p, on_progress)
+    if not (p.refine or (p.upscale and p.upscale > 1)):
+        return results
+    out = []
+    for n, r in enumerate(results, 1):
+        data, size = r.image, None
+        if p.upscale and p.upscale > 1:
+            say(f"Upscaling image {n}/{len(results)} x{p.upscale}")
+            data, size = _upscale(data, p.upscale)
+        if p.refine:
+            say(f"Pass 2: refining image {n}/{len(results)}")
+            w, h = size or image_size(data)
+            strength = min(max(p.refine_strength, 0.05), 0.95)
+            with tempfile.TemporaryDirectory() as d:
+                path = Path(d) / ("pass1" + (".png" if data[:4] == b"\x89PNG" else ".jpg"))
+                path.write_bytes(data)
+                # img2img only runs about steps*strength steps, so raise the step count to keep at least ~2 real steps
+                p2 = replace(p, init_image=str(path), strength=strength, count=1, seed=r.seed, width=_round8(w), height=_round8(h),
+                             steps=max(p.steps, math.ceil(2 / strength)), refine=False, upscale=None)
+                res = gen.generate(p2)
+            out.append(res[0] if res else Result(data, r.seed))
+        else:
+            out.append(Result(data, r.seed))
+    return out
+
+
 # --------------------------------------------------------------------------- connecting / saving
 def connect(backend: str = "auto", url: Optional[str] = None):
     """Return a ready client. backend: 'fastsd', 'a1111', 'comfyui' or 'auto'."""
@@ -368,14 +452,14 @@ def connect(backend: str = "auto", url: Optional[str] = None):
                          "Tried: " + ", ".join(u for _, u in tries))
 
 
-def save_results(results: List[Result], p: Params, outdir: str = "outputs", meta: bool = True) -> List[Path]:
+def save_results(results: List[Result], p: Params, outdir: str = "outputs", meta: bool = True, tag: str = "") -> List[Path]:
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     paths = []
     for i, r in enumerate(results, 1):
         ext = ".jpg" if r.image[:2] == b"\xff\xd8" else ".png"      # FastSD CPU returns JPEG
-        path = out / f"{stamp}_{r.seed if r.seed >= 0 else 'rand'}_{i}{ext}"
+        path = out / f"{stamp}_{tag + '_' if tag else ''}{r.seed if r.seed >= 0 else 'rand'}_{i}{ext}"
         path.write_bytes(r.image)
         if meta:
             path.with_suffix(".json").write_text(json.dumps({**asdict(p), "seed": r.seed}, indent=2))
@@ -404,7 +488,7 @@ def _progress_printer():
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"gen", "models", "samplers", "ping"}
+    commands = {"gen", "models", "samplers", "ping", "compare"}
     i = 0                                           # `imggen.py [--url X] "a cat"` == `imggen.py [--url X] gen "a cat"`
     while i < len(argv):
         if argv[i] in ("--url", "--backend"):
@@ -416,34 +500,42 @@ def main(argv: Optional[List[str]] = None) -> int:
                 argv.insert(i, "gen")
             break
 
-    ap = argparse.ArgumentParser(description="Control a local AI image generator (AUTOMATIC1111/Forge or ComfyUI).")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("prompt")
+    common.add_argument("-n", "--negative", default="")
+    common.add_argument("-W", "--width", type=int, help="default 512")
+    common.add_argument("-H", "--height", type=int, help="default 512")
+    common.add_argument("--steps", type=int, help="default: 4 on FastSD CPU, 25 elsewhere")
+    common.add_argument("--cfg", type=float, help="guidance scale. default: 1.5 on FastSD CPU, 7 elsewhere")
+    common.add_argument("--seed", type=int, default=-1, help="-1 = random")
+    common.add_argument("--sampler")
+    common.add_argument("--scheduler", help="ComfyUI only, e.g. normal, karras")
+    common.add_argument("--count", type=int, default=1, help="number of images")
+    common.add_argument("--model", help="checkpoint name (part of the name is enough)")
+    common.add_argument("--init-image", help="start from this image (image-to-image)")
+    common.add_argument("--strength", type=float, default=0.6, help="img2img strength 0-1 (higher = change more)")
+    common.add_argument("--openvino", action="store_true", help="FastSD CPU: use OpenVINO models (faster on Intel CPUs)")
+    common.add_argument("--tiny-vae", action="store_true", help="FastSD CPU: tiny auto-encoder (faster, a little less detail)")
+    common.add_argument("--extra", action="append", default=[], metavar="KEY=VALUE",
+                        help="FastSD CPU: any other /api/generate field, e.g. --extra clip_skip=2 (repeatable)")
+    common.add_argument("--refine", action="store_true", help="second pass that adds detail (takes longer)")
+    common.add_argument("--refine-strength", type=float, default=0.4, help="0.2-0.5; higher changes more (default 0.4)")
+    common.add_argument("--upscale", type=float, help="enlarge by this factor before refining, e.g. 1.5 (needs Pillow)")
+    common.add_argument("-o", "--out", default="outputs", help="output folder")
+    common.add_argument("--no-meta", action="store_true", help="don't write the .json settings file next to each image")
+
+    ap = argparse.ArgumentParser(description="Control a local AI image generator (FastSD CPU, AUTOMATIC1111/Forge or ComfyUI).")
     ap.add_argument("--backend", choices=["auto", "fastsd", "a1111", "comfyui"], default=os.environ.get("IMGGEN_BACKEND", "auto"))
-    ap.add_argument("--url", default=os.environ.get("IMGGEN_URL"), help="server address, e.g. http://127.0.0.1:7860")
+    ap.add_argument("--url", default=os.environ.get("IMGGEN_URL"), help="server address, e.g. http://127.0.0.1:8000")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("ping", help="check the generator is reachable")
     sub.add_parser("models", help="list available checkpoints")
     sub.add_parser("samplers", help="list available samplers")
-    g = sub.add_parser("gen", help="generate images")
-    g.add_argument("prompt")
-    g.add_argument("-n", "--negative", default="")
-    g.add_argument("-W", "--width", type=int, help="default 512")
-    g.add_argument("-H", "--height", type=int, help="default 512")
-    g.add_argument("--steps", type=int, help="default: 1 on FastSD CPU, 25 elsewhere")
-    g.add_argument("--cfg", type=float, help="guidance scale. default: 1 on FastSD CPU, 7 elsewhere")
-    g.add_argument("--seed", type=int, default=-1, help="-1 = random")
-    g.add_argument("--sampler")
-    g.add_argument("--scheduler", help="ComfyUI only, e.g. normal, karras")
-    g.add_argument("--count", type=int, default=1, help="number of images")
-    g.add_argument("--model", help="checkpoint name (part of the name is enough)")
-    g.add_argument("--init-image", help="start from this image (image-to-image)")
-    g.add_argument("--strength", type=float, default=0.6, help="img2img strength 0-1 (higher = change more)")
-    g.add_argument("--openvino", action="store_true", help="FastSD CPU: use OpenVINO models (faster on Intel CPUs)")
-    g.add_argument("--tiny-vae", action="store_true", help="FastSD CPU: tiny auto-encoder (faster)")
-    g.add_argument("--extra", action="append", default=[], metavar="KEY=VALUE",
-                   help="FastSD CPU: any other /api/generate field, e.g. --extra clip_skip=2 (repeatable)")
-    g.add_argument("-o", "--out", default="outputs", help="output folder")
-    g.add_argument("--no-meta", action="store_true", help="don't write the .json settings file next to each image")
+    g = sub.add_parser("gen", parents=[common], help="generate images")
+    g.add_argument("--quality", choices=list(PRESETS["default"]), help="preset: draft < good < high (refine) < best (upscale + refine)")
     g.add_argument("--open", action="store_true", help="open the first image when done")
+    c = sub.add_parser("compare", parents=[common], help="render the SAME seed at each quality level so you can pick one")
+    c.add_argument("--levels", default=",".join(PRESETS["default"]), help="comma list, default: draft,good,high,best")
     a = ap.parse_args(argv)
 
     try:
@@ -462,26 +554,42 @@ def main(argv: Optional[List[str]] = None) -> int:
                 raise GeneratorError("--count must be at least 1")
             extra = {}
             for item in a.extra:
-                key, _, val = item.partition("=")
-                if not key or not _:
+                key, eq, val = item.partition("=")
+                if not key or not eq:
                     raise GeneratorError(f"--extra needs KEY=VALUE, got '{item}'")
                 try:
                     extra[key] = json.loads(val)
                 except ValueError:
                     extra[key] = val
             p = Params(a.prompt, a.negative, a.width, a.height, a.steps, a.cfg, a.seed, a.sampler, a.scheduler,
-                       a.count, a.model, a.init_image, a.strength, a.openvino, a.tiny_vae, extra or None)
-            p = resolve(p, gen.defaults)               # so the .json file records the real settings used
-            t0 = time.time()
-            results = gen.generate(p, _progress_printer() if sys.stderr.isatty() else None)
-            if sys.stderr.isatty():
-                sys.stderr.write("\r" + " " * 50 + "\r")
-            paths = save_results(results, p, a.out, meta=not a.no_meta)
-            for path, r in zip(paths, results):
-                print(f"{path}  (seed {r.seed})")
-            print(f"Done: {len(paths)} image(s) in {time.time() - t0:.1f}s", file=sys.stderr)
-            if a.open and paths:
-                _open_file(paths[0])
+                       a.count, a.model, a.init_image, a.strength, a.openvino, a.tiny_vae, extra or None,
+                       a.refine, a.upscale, a.refine_strength)
+            tty = sys.stderr.isatty()
+            say = lambda m: print("  " + m, file=sys.stderr)
+            if a.cmd == "compare":
+                p = replace(p, seed=p.seed if p.seed >= 0 else random.randint(1, 2**31 - 1))   # same seed for every level
+                print(f"Comparing quality levels with seed {p.seed}", file=sys.stderr)
+                for level in [x.strip() for x in a.levels.split(",") if x.strip()]:
+                    pl = gen.resolve(apply_preset(p, gen.name, level))
+                    t0 = time.time()
+                    say(f"[{level}] steps={pl.steps} refine={pl.refine} upscale={pl.upscale or 1}")
+                    results = produce(gen, pl, log=say)
+                    for path in save_results(results, pl, a.out, meta=not a.no_meta, tag=level):
+                        print(f"{level:6} {time.time() - t0:6.1f}s  {path}")
+            else:
+                if a.quality:
+                    p = apply_preset(p, gen.name, a.quality)
+                p = gen.resolve(p)                     # so the .json file records the real settings used
+                t0 = time.time()
+                results = produce(gen, p, _progress_printer() if tty else None, say if (p.refine or p.upscale) else None)
+                if tty:
+                    sys.stderr.write("\r" + " " * 50 + "\r")
+                paths = save_results(results, p, a.out, meta=not a.no_meta)
+                for path, r in zip(paths, results):
+                    print(f"{path}  (seed {r.seed})")
+                print(f"Done: {len(paths)} image(s) in {time.time() - t0:.1f}s", file=sys.stderr)
+                if a.open and paths:
+                    _open_file(paths[0])
     except GeneratorError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
